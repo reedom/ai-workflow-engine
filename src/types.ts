@@ -38,6 +38,12 @@ export interface CliAdapter {
   run(spec: AgentSpec): Promise<AgentResult>;
 }
 
+export interface AgentEscalationOptions {
+  timeoutMs?: number;
+  onTimeout?: 'deny' | 'wait';
+  disabled?: boolean;
+}
+
 export interface AgentOptions {
   cli?: string;
   model?: string;
@@ -47,6 +53,7 @@ export interface AgentOptions {
   cwd?: string;
   label?: string;
   phase?: string;
+  escalation?: AgentEscalationOptions;
 }
 
 export type Stage = (prev: unknown, item: unknown, index: number) => unknown;
