@@ -16,6 +16,8 @@ export const meta = {
 const BUS_RULES = `
 agentbus cheat sheet (run via Bash):
 - register:  agentbus register --persistent <id>
+             Then drain leftovers from any earlier run with
+             "agentbus check-inbox <id>" and IGNORE whatever it returns.
 - await:     agentbus await <id> --timeout-ms 60000
              Prints {"envelopes":[...]}; an empty list just means a timeout,
              await again. Each envelope has id, kind, from, payload.
@@ -68,7 +70,9 @@ Your final response: one sentence on how the game went from your side.`;
 }
 
 export default async function run(wf) {
-  const gameId = (wf.args && wf.args.gameId) || 'demo';
+  // Bus registrations are persistent and inboxes survive unregister, so a
+  // reused game id would let a new game see the previous game's leftovers.
+  const gameId = (wf.args && wf.args.gameId) || Date.now().toString(36);
   // The game needs no heavyweight reasoning: haiku players and a sonnet
   // moderator cut per-move latency sharply. Override via
   // --args '{"playerModel":"...","moderatorModel":"..."}'.
