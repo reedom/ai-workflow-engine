@@ -61,11 +61,36 @@ interface EscalationPolicy {
   onTimeout: 'deny' | 'wait'; // default 'deny'
 }
 
+// What the broker returns to the hook helper. 'defer' means "no opinion,
+// let Claude Code's normal permission evaluation proceed".
+interface BrokerDecision {
+  behavior: 'allow' | 'deny' | 'defer';
+  reason?: string;
+}
+
 interface ApprovalChannel {
   readonly id: string;        // 'agentbus' | 'slack' | ...
   request(req: PermissionRequest): Promise<PermissionDecision>;
+  close?(): Promise<void>;
 }
 ```
+
+### Hook mechanism (verified 2026-06-10)
+
+The original draft used a `PermissionRequest` hook. Verification against
+current Claude Code docs found that **`PermissionRequest` hooks do not fire
+in `-p` (headless) mode**, and the old `--permission-prompt-tool` flag no
+longer exists. The documented mechanism for programmatic permission
+decisions in headless mode is a **`PreToolUse` hook** returning
+`hookSpecificOutput.permissionDecision` (`allow` / `deny`).
+
+Consequence: a PreToolUse hook fires on *every* tool call, not only on
+would-be permission prompts. To avoid escalating calls that would have been
+allowed (or explicitly denied) anyway, the broker first matches each call
+against known permission rules and answers `defer` for matches; only
+unmatched calls — exactly the set that headless mode would silently deny —
+escalate to the human. For `defer`, the helper prints nothing and exits 0,
+so normal permission evaluation proceeds untouched.
 
 ## 3. Components
 
@@ -74,9 +99,18 @@ interface ApprovalChannel {
 One per run, created by the runner when escalation is configured.
 
 - Owns a unix socket in the run's temp dir; accepts JSON `PermissionRequest`s
-  from hook helpers and replies with `PermissionDecision`s.
-- Routes each request through the configured `ApprovalChannel`, racing it
-  against the effective `EscalationPolicy` timer.
+  from hook helpers and replies with `BrokerDecision`s (one JSON line each
+  way per connection).
+- **Rule matching first:** a call matching the per-call allow rules (the
+  `tools` the engine passed as `--allowedTools`) or the allow/deny rules
+  loaded from the user's settings chain (`~/.claude/settings.json`,
+  `.claude/settings.json`, `.claude/settings.local.json`) returns `defer`
+  immediately — no human traffic. The matcher implements simplified,
+  conservative semantics (exact tool name, `Tool`, `Tool(*)`,
+  `Bash(prefix:*)` command-prefix); anything it cannot interpret does not
+  match, i.e. escalates. `ask`-rule matches escalate by design.
+- Only unmatched calls route through the configured `ApprovalChannel`,
+  racing it against the effective `EscalationPolicy` timer.
 - Logs every request and decision through the run's `log()` so the transcript
   shows all escalations.
 - Exposes `decide(req): Promise<PermissionDecision>` directly for in-process
@@ -88,23 +122,34 @@ One per run, created by the runner when escalation is configured.
 
 ### 3.2 agentbus connector (`src/escalation/channels/agentbus.ts`)
 
-V1's only connector.
+V1's only connector. CLI contract verified empirically 2026-06-10:
 
-- On broker start: `agentbus register awe-<runId>` (non-persistent).
-- `request()`: `agentbus ask <to>` with the request payload as JSON; parses
-  the reply into a `PermissionDecision`. `<to>` (the human's bus address)
-  comes from run config.
-- The human replies from anywhere on the bus:
-  `agentbus reply awe-<runId> ... '{"behavior":"allow"}'`.
+- No engine-side registration needed: asks are sent as
+  `agentbus ask <to> --from ext:awe-<runId> --timeout-ms <ms> -f <payload>`;
+  `ext:*` senders work unregistered. Only the human's address `<to>` must be
+  registered (`agentbus register <to> --persistent`, done once by the human).
+- `ask` blocks until the reply and prints
+  `{"request_id": "msg_...", "payload": {<reply>}}` on stdout; on timeout it
+  exits 2. `--timeout-ms` is derived from the call's policy (effectively
+  infinite for `onTimeout: 'wait'`).
+- The human sees asks via `agentbus check-inbox <to>` and answers with
+  `agentbus reply <msg-id> <to>` with payload
+  `{"behavior":"allow"|"deny","reason":"..."}`. Anything but an explicit
+  allow parses as deny.
 - A Slack connector later is a second file implementing `ApprovalChannel`.
 
-### 3.3 Hook helper (CLI subcommand)
+### 3.3 Hook helper (standalone node script)
 
-`ai-workflow-engine escalate-hook --socket <path> --agent <label>`
+`node <engine>/dist/escalation/hook-helper.js --socket <path> --meta <file>`
 
-- Reads the Claude Code hook stdin JSON, forwards a `PermissionRequest` over
-  the socket, blocks for the decision, prints the `PermissionRequest` hook
-  output JSON (`hookSpecificOutput.decision`).
+- Reads the Claude Code PreToolUse hook stdin JSON (`tool_name`,
+  `tool_input`, `cwd`), merges the per-call metadata file (`agentLabel`,
+  `policy`, `rules`), forwards the request over the socket, blocks for the
+  `BrokerDecision`.
+- Prints `{"hookSpecificOutput": {"hookEventName": "PreToolUse",
+  "permissionDecision": "allow" | "deny", "permissionDecisionReason": ...}}`
+  for allow/deny; for `defer` it prints nothing and exits 0 so normal
+  permission evaluation proceeds.
 - On any failure: prints nothing, exits non-zero — Claude Code falls back to
   its normal headless deny. Escalation failure can never make a run more
   permissive than today.
@@ -113,11 +158,15 @@ V1's only connector.
 
 When `spec.escalation` is present:
 
-- Write a temp `--settings` JSON file containing a `PermissionRequest` hook
-  whose command invokes the hook helper with the broker's socket path and the
-  agent label.
-- Add `--settings <file>` to the spawn args. No other change to the one-shot
-  spawn model. The temp file is removed after the process exits.
+- Write a temp dir containing (a) a metadata JSON file with the call's
+  `agentLabel`, `policy`, and defer `rules`, and (b) a `--settings` JSON
+  file defining a PreToolUse hook (matcher `*`) whose command invokes the
+  hook helper with the broker's socket path and the metadata file. The hook
+  `timeout` is set comfortably above the escalation timeout (or very large
+  for `onTimeout: 'wait'`).
+- Add `--settings <file>` to the spawn args (hooks merge additively with the
+  user's settings chain). No other change to the one-shot spawn model. The
+  temp dir is removed after the process exits.
 
 ### 3.5 API surface
 
@@ -126,19 +175,22 @@ When `spec.escalation` is present:
 - Per call: `agent(prompt, { escalation: { timeoutMs?, onTimeout?,
   disabled? } })`. `disabled: true` opts a call out of an escalation-enabled
   run.
-- `AgentSpec` grows `escalation?: { broker: EscalationBroker }`, set by the
-  runner; adapters that lack escalation support ignore it (codex, for now).
+- `AgentSpec` grows `escalation?: { socketPath, agentLabel, policy, rules,
+  helperCommand? }`, built per call by the orchestration layer from the
+  run's broker and the call's opts; adapters that lack escalation support
+  ignore it (codex, for now). In-process adapters (the future codex
+  app-server one) bypass the socket and call `broker.decide()` directly.
 
 ## 4. Data flow (happy path)
 
 1. Run starts with `--escalate agentbus:tohru`; runner creates the broker
    (socket up, bus registration done).
 2. `agent()` spawns `claude -p` with the injected settings file.
-3. Claude hits a permission boundary; the `PermissionRequest` hook fires the
-   helper.
-4. Helper forwards the request over the socket; broker calls the agentbus
-   connector; `agentbus ask tohru` delivers
-   `{agentLabel, toolName, toolInput, cwd}`.
+3. Claude makes a tool call; the `PreToolUse` hook fires the helper.
+4. Helper forwards the request over the socket; the broker rule-matches it —
+   calls covered by `--allowedTools` or the user's settings chain defer
+   silently; an uncovered call goes to the agentbus connector;
+   `agentbus ask tohru` delivers `{agentLabel, toolName, toolInput, cwd}`.
 5. The human replies `agentbus reply ... '{"behavior":"allow"}'` from any
    shell or agent on the bus.
 6. Decision flows back through the socket; helper prints the hook output;
@@ -169,14 +221,17 @@ Rule: **failure is never more permissive than today.**
 - E2E: an `examples/` workflow that needs an unallowed tool, run manually
   with the human replying on the bus; doubles as living documentation.
 
-## 7. Verification items for the plan phase
+## 7. Verification items — resolved (2026-06-10)
 
-- Confirm the exact `PermissionRequest` hook output schema and that the hook
-  fires in `claude -p` mode. If it does not, the fallback is
-  `--permission-prompt-tool` with a small stdio MCP server, which slots
-  behind the same broker without changing anything else.
-- Confirm hook-bearing `--settings` files compose with the user's own
-  settings chain when spawned by the engine.
+- `PermissionRequest` hooks do **not** fire in `claude -p` mode, and
+  `--permission-prompt-tool` no longer exists in the current CLI. Pivoted to
+  a `PreToolUse` hook with `permissionDecision` plus broker-side rule
+  matching (see "Hook mechanism" in section 2).
+- `--settings` files merge **additively** with the user's settings chain;
+  hooks from all scopes coexist.
+- `agentbus` contract verified empirically (see section 3.2): `ext:*`
+  senders need no registration; `ask` prints `{request_id, payload}` and
+  exits 2 on timeout.
 
 ## 8. Out of scope (V2+)
 
