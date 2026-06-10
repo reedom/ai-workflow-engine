@@ -1,0 +1,17 @@
+{
+  "name": "ai-workflow-engine",
+  "version": "0.0.0",
+  "type": "module",
+  "bin": { "ai-workflow-engine": "dist/cli.js" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "dev": "tsx"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

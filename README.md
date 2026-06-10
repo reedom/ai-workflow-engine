@@ -9,7 +9,10 @@ only does the leaf work inside `agent()` calls, each in its own fresh context.
 - Same-machine, headless, externally triggerable. No framework dependency, no daemon.
 - Mirrors Claude Code's Workflow tool API, so scripts stay portable and
   Claude-authorable.
-- Optional `--cmux` mode runs each agent in a cmux surface for human observability.
+- Optional `--cmux` mode runs each agent in a cmux surface for human observability (roadmap).
 
-Status: **design phase.** See
-[`docs/superpowers/specs/2026-06-10-ai-workflow-engine-design.md`](docs/superpowers/specs/2026-06-10-ai-workflow-engine-design.md).
+Status: **MVP implemented** (claude adapter + core orchestration + CLI). `--cmux`,
+the codex/antigravity adapters, and the durable-agent escape hatch are roadmap, not
+yet built. See
+[`docs/superpowers/specs/2026-06-10-ai-workflow-engine-design.md`](docs/superpowers/specs/2026-06-10-ai-workflow-engine-design.md)
+and [`docs/superpowers/plans/2026-06-10-ai-workflow-engine-mvp.md`](docs/superpowers/plans/2026-06-10-ai-workflow-engine-mvp.md).
