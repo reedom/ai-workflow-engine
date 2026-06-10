@@ -117,12 +117,21 @@ export default async function run(wf) {
   // --args '{"playerModel":"...","moderatorModel":"..."}'.
   const playerModel = (wf.args && wf.args.playerModel) || 'sonnet';
   const moderatorModel = (wf.args && wf.args.moderatorModel) || 'sonnet';
+  // Players can run on different agent CLIs, e.g. claude vs codex:
+  // --args '{"playerOCli":"codex"}'. playerModel is a claude model name, so
+  // non-claude players fall back to their CLI's default model.
+  const playerXCli = (wf.args && wf.args.playerXCli) || 'claude';
+  const playerOCli = (wf.args && wf.args.playerOCli) || 'claude';
   const ids = {
     mod: `ttt-${gameId}-mod`,
     x: `ttt-${gameId}-x`,
     o: `ttt-${gameId}-o`,
   };
   const tools = ['Bash'];
+  const playerOpts = (cli, label) =>
+    cli === 'claude'
+      ? { cli, tools, model: playerModel, label }
+      : { cli, label };
 
   wf.phase('Play');
   wf.log(`game ${gameId}: moderator=${ids.mod} players=${ids.x},${ids.o}`);
@@ -133,8 +142,8 @@ export default async function run(wf) {
   try {
     [moderator, playerX, playerO] = await wf.parallel([
       () => wf.agent(moderatorPrompt(ids), { tools, model: moderatorModel, label: 'moderator' }),
-      () => wf.agent(playerPrompt(ids, 'X'), { tools, model: playerModel, label: 'player-x' }),
-      () => wf.agent(playerPrompt(ids, 'O'), { tools, model: playerModel, label: 'player-o' }),
+      () => wf.agent(playerPrompt(ids, 'X'), playerOpts(playerXCli, 'player-x')),
+      () => wf.agent(playerPrompt(ids, 'O'), playerOpts(playerOCli, 'player-o')),
     ]);
   } finally {
     stopLogFollower();

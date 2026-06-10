@@ -2,6 +2,7 @@ import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { loadWorkflow, runWorkflow } from './runtime/runner.js';
 import { makeClaudeAdapter } from './adapters/claude.js';
+import { makeCodexAdapter } from './adapters/codex.js';
 
 function takeFlag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -40,7 +41,12 @@ export async function main(argv: string[]): Promise<number> {
 
   const mod = await loadWorkflow(resolve(process.cwd(), file));
   const result = await runWorkflow(mod, {
-    adapters: { claude: makeClaudeAdapter() },
+    adapters: {
+      claude: makeClaudeAdapter(),
+      // Full access matches the trust level the claude adapter grants via
+      // unrestricted Bash; this engine targets trusted, same-machine use.
+      codex: makeCodexAdapter({ sandbox: 'danger-full-access' }),
+    },
     args,
     budget,
     onLog: (m) => process.stderr.write(`[wf] ${m}\n`),
