@@ -77,10 +77,14 @@ function playerPrompt(ids, mark) {
 ${BUS_RULES}
 Your bus id: ${self}. The moderator is ${ids.mod}.
 
-1. Register yourself once, then loop on await. Keep awaiting through empty
+1. Register yourself once, then await repeatedly. Keep awaiting through empty
    timeouts, but give up after 10 consecutive empty rounds. Act on EVERY
-   envelope await returns; if anything goes wrong mid-loop, just await again —
-   never re-register and never run check-inbox.
+   envelope await returns; if anything goes wrong, just await again — never
+   re-register and never run check-inbox.
+IMPORTANT: do NOT write scripts (shell functions, loops with game logic,
+python) to compute moves or automate replies — a single script bug would mute
+you for the whole game. Each turn is plain commands: run ONE await, read the
+envelope, decide the move yourself by looking at the board, run ONE reply.
 2. On an ask with payload type "your_move": read the board, choose your
    strongest move (win if you can, otherwise block an opponent win, otherwise
    take the best open square), and reply with {"move":<index>}.
