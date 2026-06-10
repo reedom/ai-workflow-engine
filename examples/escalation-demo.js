@@ -14,7 +14,7 @@ export const meta = {
 
 export default async function (wf) {
   const result = await wf.agent(
-    'Run the Bash command `whoami` and then reply with exactly one word: done if it ran, blocked if it was not permitted.',
+    'Run the Bash command `whoami`. If it ran, reply with its exact output. If it was not permitted, reply with exactly: blocked.',
     { tools: ['Read'], label: 'demo-worker', escalation: { timeoutMs: 120_000 } },
   );
   wf.log(`agent said: ${result.text}`);
