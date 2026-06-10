@@ -1,8 +1,12 @@
 import { describe, it, expect } from 'vitest';
+import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import {
   buildClaudeArgs,
   parseClaudeResult,
   makeClaudeAdapter,
+  buildEscalationSettings,
 } from '../src/adapters/claude.js';
 
 describe('buildClaudeArgs', () => {
@@ -79,5 +83,84 @@ describe('makeClaudeAdapter', () => {
   it('throws on nonzero exit', async () => {
     const a = makeClaudeAdapter({ spawnFn: async () => ({ stdout: '', stderr: 'bad', code: 1 }) });
     await expect(a.run({ prompt: 'x' })).rejects.toThrow(/exited 1/);
+  });
+});
+
+describe('buildEscalationSettings', () => {
+  it('writes meta + settings files with a PreToolUse hook', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'awe-claude-test-'));
+    const settingsPath = buildEscalationSettings(
+      {
+        runId: 'r1',
+        socketPath: '/tmp/broker.sock',
+        agentLabel: 'worker',
+        policy: { timeoutMs: 60_000, onTimeout: 'deny' },
+        rules: ['Read'],
+        helperCommand: 'node /opt/helper.js',
+      },
+      dir,
+    );
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
+      hooks: { PreToolUse: Array<{ matcher: string; hooks: Array<{ type: string; command: string; timeout: number }> }> };
+    };
+    const hook = settings.hooks.PreToolUse[0];
+    expect(hook.matcher).toBe('*');
+    expect(hook.hooks[0].type).toBe('command');
+    expect(hook.hooks[0].command).toContain('node /opt/helper.js');
+    expect(hook.hooks[0].command).toContain('--socket "/tmp/broker.sock"');
+    expect(hook.hooks[0].command).toContain(`--meta "${join(dir, 'meta.json')}"`);
+    // hook timeout must comfortably exceed the escalation timeout (seconds)
+    expect(120 <= hook.hooks[0].timeout).toBe(true);
+    const meta = JSON.parse(readFileSync(join(dir, 'meta.json'), 'utf8')) as {
+      agentLabel: string;
+      policy: { onTimeout: string };
+      rules: string[];
+    };
+    expect(meta.agentLabel).toBe('worker');
+    expect(meta.policy.onTimeout).toBe('deny');
+    expect(meta.rules).toEqual(['Read']);
+  });
+
+  it('uses a very large hook timeout for onTimeout wait', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'awe-claude-test-'));
+    const settingsPath = buildEscalationSettings(
+      {
+        runId: 'r1',
+        socketPath: '/tmp/broker.sock',
+        agentLabel: 'worker',
+        policy: { timeoutMs: 60_000, onTimeout: 'wait' },
+        rules: [],
+        helperCommand: 'node /opt/helper.js',
+      },
+      dir,
+    );
+    const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
+      hooks: { PreToolUse: Array<{ hooks: Array<{ timeout: number }> }> };
+    };
+    expect(86_400 <= settings.hooks.PreToolUse[0].hooks[0].timeout).toBe(true);
+  });
+
+  it('passes --settings when spec.escalation is set and cleans up the temp dir', async () => {
+    let seenArgs: string[] = [];
+    const adapter = makeClaudeAdapter({
+      spawnFn: async (_cmd, args) => {
+        seenArgs = args;
+        return { stdout: JSON.stringify({ result: 'ok', usage: {} }), stderr: '', code: 0 };
+      },
+    });
+    await adapter.run({
+      prompt: 'hi',
+      escalation: {
+        runId: 'r1',
+        socketPath: '/tmp/broker.sock',
+        agentLabel: 'worker',
+        policy: { timeoutMs: 1_000, onTimeout: 'deny' },
+        rules: [],
+        helperCommand: 'node /opt/helper.js',
+      },
+    });
+    const i = seenArgs.indexOf('--settings');
+    expect(0 <= i).toBe(true);
+    expect(existsSync(dirname(seenArgs[i + 1]))).toBe(false); // temp dir removed
   });
 });

@@ -1,5 +1,9 @@
 import { spawn } from 'node:child_process';
-import type { AgentResult, AgentSpec, CliAdapter } from '../types.js';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { AgentEscalation, AgentResult, AgentSpec, CliAdapter } from '../types.js';
 
 export function buildClaudeArgs(spec: AgentSpec): string[] {
   const args = ['-p', spec.prompt, '--output-format', 'json'];
@@ -52,6 +56,50 @@ export function runProcess(cmd: string, args: string[], cwd?: string): Promise<S
   });
 }
 
+export function buildEscalationSettings(esc: AgentEscalation, dir: string): string {
+  const metaPath = join(dir, 'meta.json');
+  writeFileSync(
+    metaPath,
+    JSON.stringify({
+      runId: esc.runId,
+      agentLabel: esc.agentLabel,
+      policy: esc.policy,
+      rules: esc.rules,
+    }),
+  );
+  const helper = esc.helperCommand ?? defaultHelperCommand();
+  const settings = {
+    hooks: {
+      PreToolUse: [
+        {
+          matcher: '*',
+          hooks: [
+            {
+              type: 'command',
+              command: `${helper} --socket "${esc.socketPath}" --meta "${metaPath}"`,
+              timeout: hookTimeoutSeconds(esc.policy),
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const settingsPath = join(dir, 'settings.json');
+  writeFileSync(settingsPath, JSON.stringify(settings));
+  return settingsPath;
+}
+
+function hookTimeoutSeconds(policy: AgentEscalation['policy']): number {
+  if (policy.onTimeout === 'wait') return 86_400;
+  return Math.ceil(policy.timeoutMs / 1000) + 60;
+}
+
+function defaultHelperCommand(): string {
+  // Resolves to dist/escalation/hook-helper.js next to the built adapter.
+  const helper = fileURLToPath(new URL('../escalation/hook-helper.js', import.meta.url));
+  return `"${process.execPath}" "${helper}"`;
+}
+
 export function makeClaudeAdapter(opts: { bin?: string; spawnFn?: SpawnFn } = {}): CliAdapter {
   const bin = opts.bin ?? 'claude';
   const run = opts.spawnFn ?? runProcess;
@@ -59,9 +107,19 @@ export function makeClaudeAdapter(opts: { bin?: string; spawnFn?: SpawnFn } = {}
     id: 'claude',
     caps: { schema: true, resume: true, tools: true },
     async run(spec: AgentSpec): Promise<AgentResult> {
-      const { stdout, stderr, code } = await run(bin, buildClaudeArgs(spec), spec.cwd);
-      if (code !== 0) throw new Error(`claude exited ${code}: ${stderr.trim().slice(0, 500)}`);
-      return parseClaudeResult(stdout);
+      const args = buildClaudeArgs(spec);
+      let tempDir: string | undefined;
+      if (spec.escalation) {
+        tempDir = mkdtempSync(join(tmpdir(), 'awe-claude-'));
+        args.push('--settings', buildEscalationSettings(spec.escalation, tempDir));
+      }
+      try {
+        const { stdout, stderr, code } = await run(bin, args, spec.cwd);
+        if (code !== 0) throw new Error(`claude exited ${code}: ${stderr.trim().slice(0, 500)}`);
+        return parseClaudeResult(stdout);
+      } finally {
+        if (tempDir) rmSync(tempDir, { recursive: true, force: true });
+      }
     },
   };
 }
