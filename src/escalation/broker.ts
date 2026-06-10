@@ -1,7 +1,7 @@
 // src/escalation/broker.ts
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { createServer, type Server, type Socket } from 'node:net';
 import type {
   ApprovalChannel,
@@ -28,6 +28,7 @@ export class EscalationBroker {
   private readonly opts: BrokerOptions;
   private readonly inflight = new Set<Settle>();
   private server?: Server;
+  private closing = false;
 
   constructor(opts: BrokerOptions) {
     this.opts = opts;
@@ -36,6 +37,7 @@ export class EscalationBroker {
   }
 
   async decide(req: PermissionRequest): Promise<BrokerDecision> {
+    if (this.closing) return { behavior: 'deny', reason: 'run shutdown' };
     const rules = [...(req.rules ?? []), ...(this.opts.settingsRules ?? [])];
     if (matchesAnyRule(req.toolName, req.toolInput, rules)) return { behavior: 'defer' };
     const policy = req.policy ?? this.opts.defaultPolicy ?? DEFAULT_POLICY;
@@ -72,6 +74,7 @@ export class EscalationBroker {
   }
 
   async start(): Promise<void> {
+    if (this.server) throw new Error('EscalationBroker already started');
     this.server = createServer((sock) => this.handleConnection(sock));
     await new Promise<void>((resolve, reject) => {
       this.server?.once('error', reject);
@@ -81,10 +84,13 @@ export class EscalationBroker {
 
   private handleConnection(sock: Socket): void {
     let buf = '';
+    let answered = false;
     sock.on('data', (d) => {
+      if (answered) return;
       buf += d;
       const nl = buf.indexOf('\n');
       if (nl < 0) return;
+      answered = true;
       void this.answer(sock, buf.slice(0, nl));
     });
     sock.on('error', () => {});
@@ -101,11 +107,13 @@ export class EscalationBroker {
   }
 
   async close(): Promise<void> {
+    this.closing = true;
     for (const settle of [...this.inflight]) settle({ behavior: 'deny', reason: 'run shutdown' });
     if (this.server) {
       await new Promise<void>((resolve) => this.server?.close(() => resolve()));
       this.server = undefined;
     }
+    rmSync(dirname(this.socketPath), { recursive: true, force: true });
     await this.opts.channel.close?.();
   }
 

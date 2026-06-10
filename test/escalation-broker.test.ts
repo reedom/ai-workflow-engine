@@ -152,3 +152,38 @@ it('answers deny to malformed socket requests', async () => {
     await broker.close();
   }
 });
+
+it('denies decide() calls after close', async () => {
+  const broker = new EscalationBroker({
+    runId: 'r1',
+    channel: fakeChannel(async () => ({ behavior: 'allow' })),
+  });
+  await broker.close();
+  const d = await broker.decide(req());
+  expect(d).toEqual({ behavior: 'deny', reason: 'run shutdown' });
+});
+
+it('answers only the first line per connection', async () => {
+  const request = vi.fn(async () => ({ behavior: 'allow' as const }));
+  const broker = new EscalationBroker({ runId: 'r1', channel: fakeChannel(request) });
+  await broker.start();
+  try {
+    const replies = await new Promise<string>((resolve, reject) => {
+      const sock = connect(broker.socketPath, () => {
+        sock.write(`${JSON.stringify(req())}\n`);
+        setTimeout(() => sock.write(`${JSON.stringify(req())}\n`), 20);
+      });
+      let buf = '';
+      sock.on('data', (d) => {
+        buf += d;
+      });
+      sock.on('end', () => resolve(buf));
+      sock.on('error', reject);
+      setTimeout(() => sock.end(), 100);
+    });
+    expect(replies.trim().split('\n')).toHaveLength(1);
+    expect(request).toHaveBeenCalledTimes(1);
+  } finally {
+    await broker.close();
+  }
+});
