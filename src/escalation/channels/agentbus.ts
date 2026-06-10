@@ -1,6 +1,6 @@
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { runProcess, type SpawnFn } from '../../adapters/claude.js';
 import { DEFAULT_POLICY } from '../types.js';
 import type { ApprovalChannel, PermissionDecision, PermissionRequest } from '../types.js';
@@ -48,14 +48,18 @@ export function makeAgentbusChannel(opts: AgentbusChannelOptions): ApprovalChann
       });
       const file = join(mkdtempSync(join(tmpdir(), 'awe-ask-')), 'payload.json');
       writeFileSync(file, payload);
-      const r = await run(bin, [
-        'ask', opts.to,
-        '--from', self,
-        '--timeout-ms', String(timeoutMs),
-        '-f', file,
-      ]);
-      if (r.code !== 0) throw new Error(`agentbus ask failed: ${r.stderr.trim().slice(0, 300)}`);
-      return parseAskStdout(r.stdout);
+      try {
+        const r = await run(bin, [
+          'ask', opts.to,
+          '--from', self,
+          '--timeout-ms', String(timeoutMs),
+          '-f', file,
+        ]);
+        if (r.code !== 0) throw new Error(`agentbus ask failed: ${r.stderr.trim().slice(0, 300)}`);
+        return parseAskStdout(r.stdout);
+      } finally {
+        rmSync(dirname(file), { recursive: true, force: true });
+      }
     },
   };
 }
