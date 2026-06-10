@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { validateMeta, runWorkflow } from '../src/runtime/runner.js';
 import type { CliAdapter, WorkflowModule, AgentSpec } from '../src/types.js';
 import type { ApprovalChannel } from '../src/escalation/types.js';
@@ -76,4 +76,26 @@ it('does not wire escalation when not configured', async () => {
   };
   await runWorkflow(mod as never, { adapters: { claude: captureAdapter(specs) } });
   expect(specs[0].escalation).toBeUndefined();
+});
+
+it('closes the broker even when the workflow throws', async () => {
+  const close = vi.fn(async () => {});
+  const channel: ApprovalChannel = {
+    id: 'fake',
+    request: async () => ({ behavior: 'deny' }),
+    close,
+  };
+  const mod = {
+    meta: { name: 'wf', description: 'd' },
+    default: async () => {
+      throw new Error('boom');
+    },
+  };
+  await expect(
+    runWorkflow(mod as never, {
+      adapters: { claude: captureAdapter([]) },
+      escalation: { channel, runId: 'r1' },
+    }),
+  ).rejects.toThrow('boom');
+  expect(close).toHaveBeenCalled();
 });

@@ -71,6 +71,11 @@ async function startEscalation(
     defaultPolicy,
     log: opts.onLog,
   });
-  await broker.start();
+  try {
+    await broker.start();
+  } catch (err) {
+    await broker.close(); // releases the socket tmpdir created in the constructor
+    throw err;
+  }
   return { broker, defaultPolicy };
 }
