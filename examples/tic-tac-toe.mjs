@@ -1,3 +1,6 @@
+import { spawn } from 'node:child_process';
+import { createInterface } from 'node:readline';
+
 export const meta = {
   name: 'tic-tac-toe',
   description:
@@ -30,6 +33,7 @@ agentbus cheat sheet (run via Bash):
 - ask:       echo '<json>' | agentbus ask <to> --from <your-id> --timeout-ms 120000
              Blocks and prints the reply envelope.
 - send:      echo '<json>' | agentbus send <to> --from <your-id>
+- publish:   echo '<json>' | agentbus publish --from <your-id>
 - unregister: agentbus unregister <id>
 Board encoding: a 9-char string, indices 0-8 row-major, "." marks an empty cell.
 `;
@@ -38,6 +42,11 @@ function moderatorPrompt(ids) {
   return `You are the moderator of a tic-tac-toe game between two agents.
 ${BUS_RULES}
 Your bus id: ${ids.mod}. Player X: ${ids.x}. Player O: ${ids.o}.
+
+Narrate as you go: after every step below (registration done, game started,
+each applied move, a timeout/forfeit, game over), publish a single short line:
+  echo '{"type":"log","text":"<what just happened>"}' | agentbus publish --from ${ids.mod}
+For moves use the form "move 3: X -> 8 | board O.X.X...X".
 
 Run the game:
 1. Register yourself, then poll "agentbus ls" (sleep 2 between polls) until
@@ -80,6 +89,25 @@ Your bus id: ${self}. The moderator is ${ids.mod}.
 Your final response: one sentence on how the game went from your side.`;
 }
 
+// The moderator publishes {"type":"log"} events; follow the bus event stream
+// and surface them through wf.log so the game progresses visibly in the
+// runner output. Returns a stop function.
+function followModeratorLog(moderatorId, log) {
+  const follower = spawn('agentbus', ['events', '--follow', '--kind', 'event']);
+  const lines = createInterface({ input: follower.stdout });
+  lines.on('line', (line) => {
+    try {
+      const { envelope } = JSON.parse(line);
+      if (envelope.from === moderatorId && envelope.payload.type === 'log') {
+        log(envelope.payload.text);
+      }
+    } catch {
+      // non-JSON noise on the stream is not worth failing the game over
+    }
+  });
+  return () => follower.kill();
+}
+
 export default async function run(wf) {
   // Inbox files survive unregister and crashes, so a reused game id would let
   // a new game see the previous game's leftover messages.
@@ -98,11 +126,19 @@ export default async function run(wf) {
 
   wf.phase('Play');
   wf.log(`game ${gameId}: moderator=${ids.mod} players=${ids.x},${ids.o}`);
-  const [moderator, playerX, playerO] = await wf.parallel([
-    () => wf.agent(moderatorPrompt(ids), { tools, model: moderatorModel, label: 'moderator' }),
-    () => wf.agent(playerPrompt(ids, 'X'), { tools, model: playerModel, label: 'player-x' }),
-    () => wf.agent(playerPrompt(ids, 'O'), { tools, model: playerModel, label: 'player-o' }),
-  ]);
+  const stopLogFollower = followModeratorLog(ids.mod, wf.log);
+  let moderator;
+  let playerX;
+  let playerO;
+  try {
+    [moderator, playerX, playerO] = await wf.parallel([
+      () => wf.agent(moderatorPrompt(ids), { tools, model: moderatorModel, label: 'moderator' }),
+      () => wf.agent(playerPrompt(ids, 'X'), { tools, model: playerModel, label: 'player-x' }),
+      () => wf.agent(playerPrompt(ids, 'O'), { tools, model: playerModel, label: 'player-o' }),
+    ]);
+  } finally {
+    stopLogFollower();
+  }
 
   return {
     game: moderator ? moderator.text : null,
