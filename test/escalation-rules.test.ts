@@ -48,10 +48,15 @@ it('loads allow and deny rules from a settings chain, skipping ask rules', () =>
     join(cwd, '.claude', 'settings.json'),
     JSON.stringify({ permissions: { allow: ['Read'] } }),
   );
+  writeFileSync(
+    join(cwd, '.claude', 'settings.local.json'),
+    JSON.stringify({ permissions: { allow: ['Write'] } }),
+  );
   const rules = loadSettingsDeferRules(cwd, home);
   expect(rules).toContain('Bash(ls:*)');
   expect(rules).toContain('Bash(sudo:*)');
   expect(rules).toContain('Read');
+  expect(rules).toContain('Write');
   expect(rules).not.toContain('Bash(curl:*)');
 });
 
