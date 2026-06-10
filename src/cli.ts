@@ -1,8 +1,21 @@
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { randomUUID } from 'node:crypto';
 import { loadWorkflow, runWorkflow } from './runtime/runner.js';
 import { makeClaudeAdapter } from './adapters/claude.js';
 import { makeCodexAdapter } from './adapters/codex.js';
+import { makeAgentbusChannel } from './escalation/channels/agentbus.js';
+
+export function parseEscalateFlag(raw: string): { channelId: string; target: string } {
+  const sep = raw.indexOf(':');
+  const channelId = sep < 0 ? raw : raw.slice(0, sep);
+  const target = sep < 0 ? '' : raw.slice(sep + 1);
+  if (channelId !== 'agentbus') {
+    throw new Error(`unsupported escalation channel: ${channelId}`);
+  }
+  if (!target) throw new Error('usage: --escalate agentbus:<to>');
+  return { channelId, target };
+}
 
 function takeFlag(args: string[], name: string): string | undefined {
   const i = args.indexOf(name);
@@ -13,11 +26,12 @@ function takeFlag(args: string[], name: string): string | undefined {
 export async function main(argv: string[]): Promise<number> {
   const [cmd, file, ...rest] = argv;
   if (cmd !== 'run' || !file) {
-    process.stderr.write('usage: ai-workflow-engine run <workflow-file> [--args <json>] [--budget <n>]\n');
+    process.stderr.write('usage: ai-workflow-engine run <workflow-file> [--args <json>] [--budget <n>] [--escalate agentbus:<to>]\n');
     return 2;
   }
   const argsRaw = takeFlag(rest, '--args');
   const budgetRaw = takeFlag(rest, '--budget');
+  const escalateRaw = takeFlag(rest, '--escalate');
 
   let budget: number | null = null;
   if (budgetRaw !== undefined) {
@@ -39,6 +53,19 @@ export async function main(argv: string[]): Promise<number> {
     }
   }
 
+  let escalation: { channel: ReturnType<typeof makeAgentbusChannel>; runId: string } | undefined;
+  if (escalateRaw !== undefined) {
+    let target: string;
+    try {
+      target = parseEscalateFlag(escalateRaw).target;
+    } catch (err) {
+      process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);
+      return 2;
+    }
+    const runId = randomUUID().slice(0, 8);
+    escalation = { channel: makeAgentbusChannel({ to: target, runId }), runId };
+  }
+
   const mod = await loadWorkflow(resolve(process.cwd(), file));
   const result = await runWorkflow(mod, {
     adapters: {
@@ -49,6 +76,7 @@ export async function main(argv: string[]): Promise<number> {
     },
     args,
     budget,
+    escalation,
     onLog: (m) => process.stderr.write(`[wf] ${m}\n`),
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);

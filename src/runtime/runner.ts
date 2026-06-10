@@ -1,5 +1,9 @@
 import { pathToFileURL } from 'node:url';
 import type { CliAdapter, WorkflowMeta, WorkflowModule } from '../types.js';
+import type { ApprovalChannel, EscalationPolicy } from '../escalation/types.js';
+import { DEFAULT_POLICY } from '../escalation/types.js';
+import { EscalationBroker } from '../escalation/broker.js';
+import { loadSettingsDeferRules } from '../escalation/rules.js';
 import { createWorkflowApi } from './orchestration.js';
 import { makeBudget } from './budget.js';
 
@@ -30,15 +34,48 @@ export interface RunOptions {
   budget?: number | null;
   concurrency?: number;
   onLog?: (msg: string) => void;
+  escalation?: {
+    channel: ApprovalChannel;
+    runId: string;
+    defaultPolicy?: Partial<EscalationPolicy>;
+  };
 }
 
 export async function runWorkflow(mod: WorkflowModule, opts: RunOptions): Promise<unknown> {
-  const api = createWorkflowApi({
-    adapters: opts.adapters,
-    args: opts.args,
-    budget: makeBudget(opts.budget ?? null),
-    concurrency: opts.concurrency ?? 8,
-    onLog: opts.onLog,
+  const escalation = opts.escalation ? await startEscalation(opts) : undefined;
+  try {
+    const api = createWorkflowApi({
+      adapters: opts.adapters,
+      args: opts.args,
+      budget: makeBudget(opts.budget ?? null),
+      concurrency: opts.concurrency ?? 8,
+      onLog: opts.onLog,
+      escalation,
+    });
+    return await mod.default(api);
+  } finally {
+    await escalation?.broker.close();
+  }
+}
+
+async function startEscalation(
+  opts: RunOptions,
+): Promise<{ broker: EscalationBroker; defaultPolicy: EscalationPolicy }> {
+  const cfg = opts.escalation;
+  if (!cfg) throw new Error('unreachable');
+  const defaultPolicy: EscalationPolicy = { ...DEFAULT_POLICY, ...cfg.defaultPolicy };
+  const broker = new EscalationBroker({
+    runId: cfg.runId,
+    channel: cfg.channel,
+    settingsRules: loadSettingsDeferRules(process.cwd()),
+    defaultPolicy,
+    log: opts.onLog,
   });
-  return mod.default(api);
+  try {
+    await broker.start();
+  } catch (err) {
+    await broker.close(); // releases the socket tmpdir created in the constructor
+    throw err;
+  }
+  return { broker, defaultPolicy };
 }

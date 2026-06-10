@@ -1,3 +1,14 @@
+import type { EscalationPolicy } from './escalation/types.js';
+
+export interface AgentEscalation {
+  runId: string;
+  socketPath: string;
+  agentLabel: string;
+  policy: EscalationPolicy;
+  rules: string[]; // per-call defer rules (mirrors the call's tools)
+  helperCommand?: string; // test override; default: node + dist hook-helper
+}
+
 export interface AgentSpec {
   prompt: string;
   model?: string;
@@ -5,6 +16,7 @@ export interface AgentSpec {
   instructions?: string; // system prompt
   tools?: string[];
   cwd?: string;
+  escalation?: AgentEscalation;
 }
 
 export interface AgentUsage {
@@ -26,6 +38,12 @@ export interface CliAdapter {
   run(spec: AgentSpec): Promise<AgentResult>;
 }
 
+export interface AgentEscalationOptions {
+  timeoutMs?: number;
+  onTimeout?: 'deny' | 'wait';
+  disabled?: boolean;
+}
+
 export interface AgentOptions {
   cli?: string;
   model?: string;
@@ -35,6 +53,7 @@ export interface AgentOptions {
   cwd?: string;
   label?: string;
   phase?: string;
+  escalation?: AgentEscalationOptions;
 }
 
 export type Stage = (prev: unknown, item: unknown, index: number) => unknown;

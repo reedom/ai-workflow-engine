@@ -1,4 +1,6 @@
-import type { AgentOptions, AgentResult, CliAdapter, Stage, WorkflowApi } from '../types.js';
+import type { AgentEscalation, AgentOptions, AgentResult, CliAdapter, Stage, WorkflowApi } from '../types.js';
+import type { EscalationPolicy } from '../escalation/types.js';
+import type { EscalationBroker } from '../escalation/broker.js';
 import type { MutableBudget } from './budget.js';
 import { makeLimiter } from './limiter.js';
 
@@ -8,11 +10,27 @@ export interface OrchestrationDeps {
   budget: MutableBudget;
   concurrency: number;
   onLog?: (msg: string) => void;
+  escalation?: { broker: EscalationBroker; defaultPolicy: EscalationPolicy };
 }
 
 export function createWorkflowApi(deps: OrchestrationDeps): WorkflowApi {
   const limit = makeLimiter(deps.concurrency);
   let currentPhase = '';
+
+  function buildEscalation(prompt: string, opts: AgentOptions): AgentEscalation | undefined {
+    const esc = deps.escalation;
+    if (!esc || opts.escalation?.disabled) return undefined;
+    return {
+      runId: esc.broker.runId,
+      socketPath: esc.broker.socketPath,
+      agentLabel: opts.label ?? prompt.slice(0, 40),
+      policy: {
+        timeoutMs: opts.escalation?.timeoutMs ?? esc.defaultPolicy.timeoutMs,
+        onTimeout: opts.escalation?.onTimeout ?? esc.defaultPolicy.onTimeout,
+      },
+      rules: opts.tools ?? [],
+    };
+  }
 
   async function agent(prompt: string, opts: AgentOptions = {}): Promise<AgentResult> {
     const cliId = opts.cli ?? 'claude';
@@ -29,6 +47,7 @@ export function createWorkflowApi(deps: OrchestrationDeps): WorkflowApi {
         instructions: opts.instructions,
         tools: opts.tools,
         cwd: opts.cwd,
+        escalation: buildEscalation(prompt, opts),
       });
       deps.budget.add(result.usage.inputTokens + result.usage.outputTokens);
       return result;
