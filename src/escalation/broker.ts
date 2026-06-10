@@ -2,6 +2,7 @@
 import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createServer, type Server, type Socket } from 'node:net';
 import type {
   ApprovalChannel,
   BrokerDecision,
@@ -26,6 +27,7 @@ export class EscalationBroker {
   readonly socketPath: string;
   private readonly opts: BrokerOptions;
   private readonly inflight = new Set<Settle>();
+  private server?: Server;
 
   constructor(opts: BrokerOptions) {
     this.opts = opts;
@@ -69,8 +71,41 @@ export class EscalationBroker {
     });
   }
 
+  async start(): Promise<void> {
+    this.server = createServer((sock) => this.handleConnection(sock));
+    await new Promise<void>((resolve, reject) => {
+      this.server?.once('error', reject);
+      this.server?.listen(this.socketPath, resolve);
+    });
+  }
+
+  private handleConnection(sock: Socket): void {
+    let buf = '';
+    sock.on('data', (d) => {
+      buf += d;
+      const nl = buf.indexOf('\n');
+      if (nl < 0) return;
+      void this.answer(sock, buf.slice(0, nl));
+    });
+    sock.on('error', () => {});
+  }
+
+  private async answer(sock: Socket, line: string): Promise<void> {
+    let decision: BrokerDecision;
+    try {
+      decision = await this.decide(JSON.parse(line) as PermissionRequest);
+    } catch (err) {
+      decision = { behavior: 'deny', reason: `bad request: ${String(err)}` };
+    }
+    sock.end(`${JSON.stringify(decision)}\n`);
+  }
+
   async close(): Promise<void> {
     for (const settle of [...this.inflight]) settle({ behavior: 'deny', reason: 'run shutdown' });
+    if (this.server) {
+      await new Promise<void>((resolve) => this.server?.close(() => resolve()));
+      this.server = undefined;
+    }
     await this.opts.channel.close?.();
   }
 

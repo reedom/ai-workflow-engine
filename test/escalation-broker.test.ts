@@ -1,7 +1,8 @@
 // test/escalation-broker.test.ts
 import { it, expect, vi } from 'vitest';
+import { connect } from 'node:net';
 import { EscalationBroker } from '../src/escalation/broker.js';
-import type { ApprovalChannel, PermissionRequest } from '../src/escalation/types.js';
+import type { ApprovalChannel, BrokerDecision, PermissionRequest } from '../src/escalation/types.js';
 
 function req(over: Partial<PermissionRequest> = {}): PermissionRequest {
   return {
@@ -104,4 +105,50 @@ it('logs escalations and decisions', async () => {
   await broker.decide(req());
   expect(lines.some((l) => l.includes('escalating') && l.includes('worker'))).toBe(true);
   expect(lines.some((l) => l.includes('deny'))).toBe(true);
+});
+
+function roundTrip(socketPath: string, payload: string): Promise<BrokerDecision> {
+  return new Promise((resolve, reject) => {
+    const sock = connect(socketPath, () => sock.write(`${payload}\n`));
+    let buf = '';
+    sock.on('data', (d) => {
+      buf += d;
+      const nl = buf.indexOf('\n');
+      if (0 <= nl) {
+        sock.end();
+        resolve(JSON.parse(buf.slice(0, nl)) as BrokerDecision);
+      }
+    });
+    sock.on('error', reject);
+  });
+}
+
+it('serves decisions over its unix socket', async () => {
+  const broker = new EscalationBroker({
+    runId: 'r1',
+    channel: fakeChannel(async () => ({ behavior: 'allow', reason: 'remote ok' })),
+  });
+  await broker.start();
+  try {
+    const d = await roundTrip(broker.socketPath, JSON.stringify(req()));
+    expect(d).toEqual({ behavior: 'allow', reason: 'remote ok' });
+    const deferred = await roundTrip(
+      broker.socketPath,
+      JSON.stringify(req({ rules: ['Bash(rm -rf:*)'] })),
+    );
+    expect(deferred.behavior).toBe('defer');
+  } finally {
+    await broker.close();
+  }
+});
+
+it('answers deny to malformed socket requests', async () => {
+  const broker = new EscalationBroker({ runId: 'r1', channel: fakeChannel(vi.fn()) });
+  await broker.start();
+  try {
+    const d = await roundTrip(broker.socketPath, 'not json');
+    expect(d.behavior).toBe('deny');
+  } finally {
+    await broker.close();
+  }
 });
