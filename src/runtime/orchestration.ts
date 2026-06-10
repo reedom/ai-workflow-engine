@@ -27,14 +27,21 @@ export function createWorkflowApi(deps: OrchestrationDeps): WorkflowApi {
         tools: opts.tools,
         cwd: opts.cwd,
       });
-      deps.budget.add(result.usage.outputTokens);
+      deps.budget.add(result.usage?.outputTokens ?? 0);
       return result;
     });
   }
 
   async function parallel<T>(thunks: Array<() => Promise<T>>): Promise<Array<T | null>> {
     return Promise.all(
-      thunks.map((t) => Promise.resolve().then(t).catch(() => null)),
+      thunks.map((t) =>
+        Promise.resolve()
+          .then(t)
+          .catch((err) => {
+            if (deps.onLog) deps.onLog(`parallel: task failed: ${String(err)}`);
+            return null;
+          }),
+      ),
     );
   }
 

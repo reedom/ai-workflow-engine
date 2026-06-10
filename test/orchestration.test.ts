@@ -75,3 +75,21 @@ it('exposes args', async () => {
   const { wf } = api({ claude: fakeAdapter() });
   expect(wf.args).toEqual({ n: 1 });
 });
+
+it('phase/log emit through onLog with a phase prefix', () => {
+  const logs: string[] = [];
+  const budget = makeBudget(null);
+  const wf = createWorkflowApi({ adapters: { claude: fakeAdapter() }, args: null, budget, concurrency: 4, onLog: (m) => logs.push(m) });
+  wf.phase('Build');
+  wf.log('started');
+  expect(logs).toEqual(['=== Build ===', '[Build] started']);
+});
+
+it('logs swallowed failures in parallel via onLog', async () => {
+  const logs: string[] = [];
+  const budget = makeBudget(null);
+  const wf = createWorkflowApi({ adapters: { claude: fakeAdapter() }, args: null, budget, concurrency: 4, onLog: (m) => logs.push(m) });
+  const out = await wf.parallel([() => Promise.reject(new Error('boom'))]);
+  expect(out).toEqual([null]);
+  expect(logs.some((l) => l.includes('boom'))).toBe(true);
+});
