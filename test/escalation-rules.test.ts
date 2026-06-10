@@ -1,5 +1,8 @@
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { it, expect } from 'vitest';
-import { matchesAnyRule, matchesRule } from '../src/escalation/rules.js';
+import { matchesAnyRule, matchesRule, loadSettingsDeferRules } from '../src/escalation/rules.js';
 
 it('matches bare tool name against any input', () => {
   expect(matchesRule('Read', { file_path: '/x' }, 'Read')).toBe(true);
@@ -30,4 +33,29 @@ it('is conservative: unknown arg patterns never match', () => {
 it('matchesAnyRule checks the whole list', () => {
   expect(matchesAnyRule('Bash', { command: 'ls -la' }, ['Read', 'Bash(ls:*)'])).toBe(true);
   expect(matchesAnyRule('Bash', { command: 'rm -rf /' }, ['Read', 'Bash(ls:*)'])).toBe(false);
+});
+
+it('loads allow and deny rules from a settings chain, skipping ask rules', () => {
+  const home = mkdtempSync(join(tmpdir(), 'awe-home-'));
+  const cwd = mkdtempSync(join(tmpdir(), 'awe-cwd-'));
+  mkdirSync(join(home, '.claude'), { recursive: true });
+  mkdirSync(join(cwd, '.claude'), { recursive: true });
+  writeFileSync(
+    join(home, '.claude', 'settings.json'),
+    JSON.stringify({ permissions: { allow: ['Bash(ls:*)'], deny: ['Bash(sudo:*)'], ask: ['Bash(curl:*)'] } }),
+  );
+  writeFileSync(
+    join(cwd, '.claude', 'settings.json'),
+    JSON.stringify({ permissions: { allow: ['Read'] } }),
+  );
+  const rules = loadSettingsDeferRules(cwd, home);
+  expect(rules).toContain('Bash(ls:*)');
+  expect(rules).toContain('Bash(sudo:*)');
+  expect(rules).toContain('Read');
+  expect(rules).not.toContain('Bash(curl:*)');
+});
+
+it('returns empty rules when settings files are missing or invalid', () => {
+  const empty = mkdtempSync(join(tmpdir(), 'awe-empty-'));
+  expect(loadSettingsDeferRules(empty, empty)).toEqual([]);
 });
