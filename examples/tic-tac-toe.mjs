@@ -69,6 +69,11 @@ Your final response: one sentence on how the game went from your side.`;
 
 export default async function run(wf) {
   const gameId = (wf.args && wf.args.gameId) || 'demo';
+  // The game needs no heavyweight reasoning: haiku players and a sonnet
+  // moderator cut per-move latency sharply. Override via
+  // --args '{"playerModel":"...","moderatorModel":"..."}'.
+  const playerModel = (wf.args && wf.args.playerModel) || 'haiku';
+  const moderatorModel = (wf.args && wf.args.moderatorModel) || 'sonnet';
   const ids = {
     mod: `ttt-${gameId}-mod`,
     x: `ttt-${gameId}-x`,
@@ -79,9 +84,9 @@ export default async function run(wf) {
   wf.phase('Play');
   wf.log(`game ${gameId}: moderator=${ids.mod} players=${ids.x},${ids.o}`);
   const [moderator, playerX, playerO] = await wf.parallel([
-    () => wf.agent(moderatorPrompt(ids), { tools, label: 'moderator' }),
-    () => wf.agent(playerPrompt(ids, 'X'), { tools, label: 'player-x' }),
-    () => wf.agent(playerPrompt(ids, 'O'), { tools, label: 'player-o' }),
+    () => wf.agent(moderatorPrompt(ids), { tools, model: moderatorModel, label: 'moderator' }),
+    () => wf.agent(playerPrompt(ids, 'X'), { tools, model: playerModel, label: 'player-x' }),
+    () => wf.agent(playerPrompt(ids, 'O'), { tools, model: playerModel, label: 'player-o' }),
   ]);
 
   return {
