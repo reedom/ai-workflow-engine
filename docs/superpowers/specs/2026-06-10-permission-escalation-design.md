@@ -1,6 +1,6 @@
 # Design: permission escalation via external channels
 
-Status: **approved** (2026-06-10)
+Status: **implemented** (claude + agentbus; codex/slack are V2)
 
 When a managed agent is about to ask for permission, route the question to the
 human over an external channel (agentbus first, Slack later) with a full
