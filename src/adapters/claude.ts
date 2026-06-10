@@ -6,12 +6,19 @@ export function buildClaudeArgs(spec: AgentSpec): string[] {
   if (spec.model) args.push('--model', spec.model);
   if (spec.schema !== undefined) args.push('--json-schema', JSON.stringify(spec.schema));
   if (spec.instructions) args.push('--append-system-prompt', spec.instructions);
-  if (spec.tools && 0 < spec.tools.length) args.push('--allowedTools', ...spec.tools);
+  const tools = spec.tools ?? [];
+  if (0 < tools.length) args.push('--allowedTools', ...tools);
   return args;
 }
 
 export function parseClaudeResult(stdout: string): AgentResult {
-  const env = JSON.parse(stdout) as Record<string, unknown>;
+  if (!stdout.trim()) throw new Error('claude produced empty stdout');
+  let env: Record<string, unknown>;
+  try {
+    env = JSON.parse(stdout) as Record<string, unknown>;
+  } catch {
+    throw new Error(`claude stdout is not valid JSON: ${stdout.slice(0, 200)}`);
+  }
   if (env['is_error'] === true) {
     const detail = env['result'] ?? env['api_error_status'] ?? 'no detail';
     throw new Error(`claude error (${String(env['subtype'] ?? 'unknown')}): ${String(detail)}`);

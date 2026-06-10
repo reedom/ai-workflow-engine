@@ -20,6 +20,10 @@ describe('buildClaudeArgs', () => {
     expect(args).toContain('--json-schema');
     expect(args).toContain('--append-system-prompt');
     expect(args).toContain('--allowedTools');
+    const modelIdx = args.indexOf('--model');
+    expect(args[modelIdx + 1]).toBe('haiku');
+    const toolsIdx = args.indexOf('--allowedTools');
+    expect(args.slice(toolsIdx + 1)).toEqual(['Read', 'Bash']);
   });
 });
 
@@ -50,15 +54,24 @@ describe('parseClaudeResult', () => {
     const stdout = JSON.stringify({ is_error: true, subtype: 'error_max_turns', result: 'boom' });
     expect(() => parseClaudeResult(stdout)).toThrow(/claude error/);
   });
+
+  it('throws a descriptive error on invalid JSON', () => {
+    expect(() => parseClaudeResult('Rate limit exceeded')).toThrow(/not valid JSON/);
+    expect(() => parseClaudeResult('   ')).toThrow(/empty stdout/);
+  });
 });
 
 describe('makeClaudeAdapter', () => {
   it('runs via injected spawn and parses', async () => {
     const a = makeClaudeAdapter({
-      spawnFn: async () => ({
-        stdout: JSON.stringify({ is_error: false, result: 'ok', usage: { input_tokens: 1, output_tokens: 3 } }),
-        stderr: '', code: 0,
-      }),
+      spawnFn: async (cmd, args) => {
+        expect(cmd).toBe('claude');
+        expect(args[0]).toBe('-p');
+        return {
+          stdout: JSON.stringify({ is_error: false, result: 'ok', usage: { input_tokens: 1, output_tokens: 3 } }),
+          stderr: '', code: 0,
+        };
+      },
     });
     expect((await a.run({ prompt: 'x' })).text).toBe('ok');
   });
