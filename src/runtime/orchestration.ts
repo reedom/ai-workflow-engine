@@ -18,6 +18,9 @@ export function createWorkflowApi(deps: OrchestrationDeps): WorkflowApi {
     const cliId = opts.cli ?? 'claude';
     const adapter = deps.adapters[cliId];
     if (!adapter) throw new Error(`unknown cli adapter: ${cliId}`);
+    if (deps.budget.total !== null && deps.budget.remaining() <= 0) {
+      throw new Error('budget exhausted');
+    }
     return limit(async () => {
       const result = await adapter.run({
         prompt,
@@ -27,11 +30,13 @@ export function createWorkflowApi(deps: OrchestrationDeps): WorkflowApi {
         tools: opts.tools,
         cwd: opts.cwd,
       });
-      deps.budget.add(result.usage?.outputTokens ?? 0);
+      deps.budget.add(result.usage.inputTokens + result.usage.outputTokens);
       return result;
     });
   }
 
+  // Concurrency is capped inside agent() (via the limiter); parallel/pipeline
+  // launch eagerly and rely on that cap.
   async function parallel<T>(thunks: Array<() => Promise<T>>): Promise<Array<T | null>> {
     return Promise.all(
       thunks.map((t) =>

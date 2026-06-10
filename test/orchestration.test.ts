@@ -34,11 +34,17 @@ describe('agent()', () => {
     await expect(wf.agent('x', { cli: 'nope' })).rejects.toThrow(/unknown cli/);
   });
 
-  it('accrues output tokens into the budget', async () => {
+  it('accrues input+output tokens into the budget', async () => {
     const { wf, budget } = api({ claude: fakeAdapter() }, 100);
     await wf.agent('a');
     await wf.agent('b');
-    expect(budget.spent()).toBe(4);
+    expect(budget.spent()).toBe(6);
+  });
+
+  it('throws when the budget is exhausted', async () => {
+    const { wf } = api({ claude: fakeAdapter() }, 2);
+    await wf.agent('a'); // spends 3, exhausts the budget of 2
+    await expect(wf.agent('b')).rejects.toThrow(/budget exhausted/);
   });
 });
 

@@ -1,4 +1,5 @@
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { loadWorkflow, runWorkflow } from './runtime/runner.js';
 import { makeClaudeAdapter } from './adapters/claude.js';
 
@@ -16,20 +17,44 @@ export async function main(argv: string[]): Promise<number> {
   }
   const argsRaw = takeFlag(rest, '--args');
   const budgetRaw = takeFlag(rest, '--budget');
+
+  let budget: number | null = null;
+  if (budgetRaw !== undefined) {
+    const n = Number(budgetRaw);
+    if (!Number.isFinite(n)) {
+      process.stderr.write(`error: --budget must be a number, got '${budgetRaw}'\n`);
+      return 2;
+    }
+    budget = n;
+  }
+
+  let args: unknown;
+  if (argsRaw !== undefined) {
+    try {
+      args = JSON.parse(argsRaw);
+    } catch {
+      process.stderr.write(`error: --args must be valid JSON\n`);
+      return 2;
+    }
+  }
+
   const mod = await loadWorkflow(resolve(process.cwd(), file));
   const result = await runWorkflow(mod, {
     adapters: { claude: makeClaudeAdapter() },
-    args: argsRaw ? JSON.parse(argsRaw) : undefined,
-    budget: budgetRaw ? Number(budgetRaw) : null,
+    args,
+    budget,
     onLog: (m) => process.stderr.write(`[wf] ${m}\n`),
   });
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   return 0;
 }
 
-main(process.argv.slice(2))
-  .then((code) => process.exit(code))
-  .catch((err) => {
-    process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);
-    process.exit(1);
-  });
+const entry = process.argv[1];
+if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
+  main(process.argv.slice(2))
+    .then((code) => process.exit(code))
+    .catch((err) => {
+      process.stderr.write(`error: ${err instanceof Error ? err.message : String(err)}\n`);
+      process.exit(1);
+    });
+}
