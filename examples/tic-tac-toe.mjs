@@ -15,9 +15,12 @@ export const meta = {
 
 const BUS_RULES = `
 agentbus cheat sheet (run via Bash):
-- register:  agentbus register --persistent <id>
-             Then drain leftovers from any earlier run with
-             "agentbus check-inbox <id>" and IGNORE whatever it returns.
+- register:  agentbus register --pid $PPID <id>
+             $PPID inside your Bash tool is your own agent process, so the
+             registration dies with you (ctrl-c included) — no stale rows.
+             Register exactly ONCE; never re-register.
+- receive:   ONLY via await (below). NEVER run "agentbus check-inbox" — it
+             silently consumes messages you would then miss.
 - await:     agentbus await <id> --timeout-ms 60000
              Prints {"envelopes":[...]}; an empty list just means a timeout,
              await again. Each envelope has id, kind, from, payload.
@@ -38,19 +41,25 @@ Your bus id: ${ids.mod}. Player X: ${ids.x}. Player O: ${ids.o}.
 
 Run the game:
 1. Register yourself, then poll "agentbus ls" (sleep 2 between polls) until
-   both players are registered.
+   both players are registered with "alive": true. If a player is still missing
+   after 60 seconds,
+   abort: report which player never registered instead of starting the game.
 2. Start from the empty board ".........". X moves first.
 3. Each turn, ask the player whose move it is with payload
    {"type":"your_move","mark":"X","board":"<current board>"}.
    The reply payload contains {"move":<0-8>}.
 4. Validate the move (an in-range, empty cell). On an invalid move, re-ask once
    with an "error" field explaining why; a second invalid move forfeits the game.
-5. Apply the move, then check for a win (three in a row) or a draw (full board).
-6. When the game ends, send {"type":"game_over","result":"<X wins|O wins|draw>",
+5. If an ask times out (the ask command reports a timeout error), re-ask once.
+   A second consecutive timeout from the same player forfeits the game to the
+   other player — do NOT keep retrying beyond that.
+6. Apply the move, then check for a win (three in a row) or a draw (full board).
+7. When the game ends — including by forfeit — send {"type":"game_over",
+   "result":"<X wins|O wins|draw|X wins by forfeit|O wins by forfeit>",
    "board":"<final board>"} to BOTH players, then unregister yourself.
 
 Your final response: the move list in order, the final board drawn as a 3x3
-grid, and the result.`;
+grid, and the result (note a forfeit or abort explicitly).`;
 }
 
 function playerPrompt(ids, mark) {
@@ -59,8 +68,10 @@ function playerPrompt(ids, mark) {
 ${BUS_RULES}
 Your bus id: ${self}. The moderator is ${ids.mod}.
 
-1. Register yourself, then loop on await. Keep awaiting through empty timeouts,
-   but give up after 10 consecutive empty rounds.
+1. Register yourself once, then loop on await. Keep awaiting through empty
+   timeouts, but give up after 10 consecutive empty rounds. Act on EVERY
+   envelope await returns; if anything goes wrong mid-loop, just await again —
+   never re-register and never run check-inbox.
 2. On an ask with payload type "your_move": read the board, choose your
    strongest move (win if you can, otherwise block an opponent win, otherwise
    take the best open square), and reply with {"move":<index>}.
@@ -70,13 +81,13 @@ Your final response: one sentence on how the game went from your side.`;
 }
 
 export default async function run(wf) {
-  // Bus registrations are persistent and inboxes survive unregister, so a
-  // reused game id would let a new game see the previous game's leftovers.
+  // Inbox files survive unregister and crashes, so a reused game id would let
+  // a new game see the previous game's leftover messages.
   const gameId = (wf.args && wf.args.gameId) || Date.now().toString(36);
-  // The game needs no heavyweight reasoning: haiku players and a sonnet
-  // moderator cut per-move latency sharply. Override via
+  // The game needs no heavyweight reasoning, so smaller/faster models keep
+  // per-move latency low. Override via
   // --args '{"playerModel":"...","moderatorModel":"..."}'.
-  const playerModel = (wf.args && wf.args.playerModel) || 'haiku';
+  const playerModel = (wf.args && wf.args.playerModel) || 'sonnet';
   const moderatorModel = (wf.args && wf.args.moderatorModel) || 'sonnet';
   const ids = {
     mod: `ttt-${gameId}-mod`,
