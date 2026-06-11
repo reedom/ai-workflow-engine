@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FR 04: Run CLI</title>
+<script type="application/kusara+yaml">
+refs:
+  id: fr:04-run-cli
+  kind: fr
+  title: "Run CLI"
+  spec: ai-workflow-engine
+  related:
+    - fr:01-workflow-model
+    - fr:05-permission-escalation
+  modules:
+    - src/cli.ts
+</script>
+<style>
+:root {
+  --ink: #1f2429;
+  --ink-soft: #525a63;
+  --ink-faint: #8a929b;
+  --line: #e0ddd5;
+  --accent: #8a4f24;
+  --code-bg: #f0eee8;
+  --bg: #fdfcfa;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15.5px;
+  line-height: 1.65;
+}
+main { max-width: 800px; margin: 0 auto; padding: 48px 28px 96px; }
+h1 { font-size: 30px; line-height: 1.2; margin: 0 0 18px; letter-spacing: -.01em; }
+h2 { font-size: 21px; margin: 36px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+h3 { font-size: 17px; margin: 26px 0 8px; }
+p, ul, ol { margin: 0 0 12px; }
+ul, ol { padding-left: 26px; }
+li { margin-bottom: 4px; }
+a { color: var(--accent); }
+blockquote {
+  margin: 0 0 18px;
+  padding: 6px 18px;
+  border-left: 3px solid var(--accent);
+  color: var(--ink-soft);
+  font-style: italic;
+}
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .88em;
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 1.5px 5px;
+}
+pre {
+  background: #23282e;
+  color: #e8e6e1;
+  border-radius: 8px;
+  padding: 16px 20px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 18px;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+table { border-collapse: collapse; width: 100%; margin: 0 0 18px; font-size: 14px; }
+th, td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
+th { background: var(--code-bg); font-weight: 600; }
+figure {
+  margin: 18px 0 22px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+figure svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+figcaption { font-size: 12.5px; color: var(--ink-faint); margin-top: 10px; }
+.doc-nav {
+  font-size: 13px;
+  color: var(--ink-faint);
+  margin-bottom: 28px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.doc-nav a { color: var(--ink-soft); text-decoration: none; }
+.doc-nav a:hover { color: var(--accent); }
+@media (max-width: 600px) { main { padding: 28px 16px 64px; } }
+</style>
+</head>
+<body>
+<main>
+<nav class="doc-nav"><a href="README.md">docs/fr</a> · fr:04-run-cli</nav>
+<h1>FR 04: Run CLI</h1>
+
+<blockquote><p><code>ai-workflow-engine run &lt;workflow-file&gt;</code> executes one workflow headlessly: result JSON on stdout, <code>[wf]</code> narration on stderr, exit code says what happened.</p></blockquote>
+
+<h2 id="purpose">Purpose</h2>
+
+<p>The engine is externally triggerable: cron jobs, hooks, or other agents start a run with one command and consume its result from stdout. The CLI is the only entry point; there is no daemon.</p>
+
+<h2 id="user-visible-behavior">User-visible Behavior</h2>
+
+<pre><code>ai-workflow-engine run &lt;workflow-file&gt; [--args &lt;json&gt;] [--budget &lt;n&gt;] [--escalate agentbus:&lt;to&gt;]</code></pre>
+
+<ul>
+<li><code>--args &lt;json&gt;</code> — parsed JSON exposed to the workflow body as <code>args</code>.</li>
+<li><code>--budget &lt;n&gt;</code> — token target for the run; exhaustion makes the next <code>agent()</code> call throw (FR 02).</li>
+<li><code>--escalate agentbus:&lt;to&gt;</code> — opt the run into permission escalation toward bus address <code>&lt;to&gt;</code> (FR 05).</li>
+</ul>
+
+<p>Streams and exit codes:</p>
+
+<ul>
+<li>Normal case: the workflow's return value is printed to stdout as pretty-printed JSON; progress lines go to stderr prefixed <code>[wf] </code>; exit 0.</li>
+<li>Usage errors (missing subcommand/file, non-numeric <code>--budget</code>, invalid <code>--args</code> JSON, malformed <code>--escalate</code> value) print an <code>error:</code>/<code>usage:</code> line on stderr and exit 2 without running anything.</li>
+<li>Runtime errors (load failure, workflow throw, adapter failure) print <code>error: &lt;message&gt;</code> and exit 1.</li>
+</ul>
+
+<figure>
+<svg viewBox="0 0 760 190" font-family="inherit">
+<defs><marker id="ar4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--ink-faint)"/></marker></defs>
+<rect x="10" y="50" width="130" height="48" rx="8" style="fill:#fff;stroke:var(--line)"/>
+<text x="75" y="71" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--ink)">parse argv</text>
+<text x="75" y="88" text-anchor="middle" font-size="10.5" style="fill:var(--ink-faint)">flags + path</text>
+<rect x="190" y="50" width="130" height="48" rx="8" style="fill:#fff;stroke:var(--line)"/>
+<text x="255" y="71" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--ink)">load module</text>
+<text x="255" y="88" text-anchor="middle" font-size="10.5" style="fill:var(--ink-faint)">validate meta</text>
+<rect x="370" y="50" width="130" height="48" rx="8" style="fill:#fff;stroke:var(--line)"/>
+<text x="435" y="71" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--ink)">run body</text>
+<text x="435" y="88" text-anchor="middle" font-size="10.5" style="fill:var(--ink-faint)">agents spawn</text>
+<rect x="550" y="50" width="170" height="48" rx="8" style="fill:var(--code-bg);stroke:var(--accent)" stroke-width="1.5"/>
+<text x="635" y="71" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--accent)">result JSON → stdout</text>
+<text x="635" y="88" text-anchor="middle" font-size="10.5" style="fill:var(--accent)">exit 0</text>
+<line x1="140" y1="74" x2="188" y2="74" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar4)"/>
+<line x1="320" y1="74" x2="368" y2="74" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar4)"/>
+<line x1="500" y1="74" x2="548" y2="74" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar4)"/>
+<line x1="75" y1="98" x2="75" y2="132" stroke-width="1.4" stroke-dasharray="4 3" style="stroke:var(--ink-faint)" marker-end="url(#ar4)"/>
+<rect x="10" y="134" width="130" height="36" rx="8" style="fill:#fff;stroke:var(--ink-faint)" stroke-dasharray="4 3"/>
+<text x="75" y="151" text-anchor="middle" font-size="10.5" style="fill:var(--ink-soft)">usage error → exit 2</text>
+<text x="75" y="164" text-anchor="middle" font-size="9.5" style="fill:var(--ink-faint)">nothing runs</text>
+<line x1="255" y1="98" x2="255" y2="132" stroke-width="1.4" stroke-dasharray="4 3" style="stroke:var(--ink-faint)" marker-end="url(#ar4)"/>
+<rect x="190" y="134" width="130" height="36" rx="8" style="fill:#fff;stroke:var(--ink-faint)" stroke-dasharray="4 3"/>
+<text x="255" y="156" text-anchor="middle" font-size="10.5" style="fill:var(--ink-soft)">load fails → exit 1</text>
+<line x1="435" y1="98" x2="435" y2="132" stroke-width="1.4" stroke-dasharray="4 3" style="stroke:var(--ink-faint)" marker-end="url(#ar4)"/>
+<rect x="370" y="134" width="130" height="36" rx="8" style="fill:#fff;stroke:var(--ink-faint)" stroke-dasharray="4 3"/>
+<text x="435" y="156" text-anchor="middle" font-size="10.5" style="fill:var(--ink-soft)">throw → exit 1</text>
+<text x="635" y="36" text-anchor="middle" font-size="10" style="fill:var(--ink-faint)">[wf] narration → stderr throughout</text>
+</svg>
+<figcaption>Fig. 1 — Run lifecycle. Usage errors exit 2 before anything runs; load and runtime failures exit 1; success prints the workflow's return value as pretty-printed JSON on stdout with <code>[wf]</code> narration on stderr.</figcaption>
+</figure>
+
+<h2 id="capabilities">Capabilities</h2>
+
+<ul>
+<li>Registers the built-in adapters per run: <code>claude</code> (default) and <code>codex</code> (with <code>danger-full-access</code> sandbox; see FR 03).</li>
+<li>Generates a short random run id for escalation-enabled runs (used as the engine's bus identity, FR 05).</li>
+<li>Resolves the workflow path against the invoking cwd, so relative paths work from anywhere.</li>
+</ul>
+
+<h2 id="boundaries">Boundaries</h2>
+
+<ul>
+<li><code>run</code> is the only subcommand; there is no <code>list</code>, <code>validate</code>, or daemon mode.</li>
+<li>Concurrency is not CLI-configurable (fixed at the runner default of 8); set it via the programmatic <code>runWorkflow</code> API if embedding.</li>
+<li>The only escalation channel accepted is <code>agentbus:</code>; other channel ids are rejected at parse time.</li>
+</ul>
+
+<h2 id="traceability">Traceability</h2>
+
+<ul>
+<li><strong>Related FR</strong>: <a href="01-workflow-model.html">01-workflow-model.html</a>, <a href="05-permission-escalation.html">05-permission-escalation.html</a></li>
+</ul>
+</main>
+</body>
+</html>

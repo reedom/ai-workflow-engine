@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FR 01: Workflow Model</title>
+<script type="application/kusara+yaml">
+refs:
+  id: fr:01-workflow-model
+  kind: fr
+  title: "Workflow Model"
+  spec: ai-workflow-engine
+  related:
+    - fr:02-orchestration-api
+    - fr:04-run-cli
+  modules:
+    - src/runtime/runner.ts
+    - src/types.ts
+</script>
+<style>
+:root {
+  --ink: #1f2429;
+  --ink-soft: #525a63;
+  --ink-faint: #8a929b;
+  --line: #e0ddd5;
+  --accent: #8a4f24;
+  --code-bg: #f0eee8;
+  --bg: #fdfcfa;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15.5px;
+  line-height: 1.65;
+}
+main { max-width: 800px; margin: 0 auto; padding: 48px 28px 96px; }
+h1 { font-size: 30px; line-height: 1.2; margin: 0 0 18px; letter-spacing: -.01em; }
+h2 { font-size: 21px; margin: 36px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+h3 { font-size: 17px; margin: 26px 0 8px; }
+p, ul, ol { margin: 0 0 12px; }
+ul, ol { padding-left: 26px; }
+li { margin-bottom: 4px; }
+a { color: var(--accent); }
+blockquote {
+  margin: 0 0 18px;
+  padding: 6px 18px;
+  border-left: 3px solid var(--accent);
+  color: var(--ink-soft);
+  font-style: italic;
+}
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .88em;
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 1.5px 5px;
+}
+pre {
+  background: #23282e;
+  color: #e8e6e1;
+  border-radius: 8px;
+  padding: 16px 20px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 18px;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+table { border-collapse: collapse; width: 100%; margin: 0 0 18px; font-size: 14px; }
+th, td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
+th { background: var(--code-bg); font-weight: 600; }
+figure {
+  margin: 18px 0 22px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+figure svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+figcaption { font-size: 12.5px; color: var(--ink-faint); margin-top: 10px; }
+.doc-nav {
+  font-size: 13px;
+  color: var(--ink-faint);
+  margin-bottom: 28px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.doc-nav a { color: var(--ink-soft); text-decoration: none; }
+.doc-nav a:hover { color: var(--accent); }
+@media (max-width: 600px) { main { padding: 28px 16px 64px; } }
+</style>
+</head>
+<body>
+<main>
+<nav class="doc-nav"><a href="README.md">docs/fr</a> · fr:01-workflow-model</nav>
+<h1>FR 01: Workflow Model</h1>
+
+<blockquote><p>A workflow is a plain JS/TS module — a pure <code>meta</code> literal plus a default async function — whose loops, conditionals, and fan-out are deterministic JavaScript; the model only does leaf work inside <code>agent()</code> calls, each in its own fresh context.</p></blockquote>
+
+<h2 id="purpose">Purpose</h2>
+
+<p>Run AI agent orchestrations ("armies") headlessly on one machine without a framework or daemon. All control flow lives in operator-authored JavaScript so orchestration spends zero model tokens and behaves the same each run (aside from agent nondeterminism). The format deliberately mirrors Claude Code's Workflow tool so scripts stay portable and Claude-authorable.</p>
+
+<h2 id="user-visible-behavior">User-visible Behavior</h2>
+
+<p>A workflow file exports two things:</p>
+
+<pre><code>export const meta = {
+  name: 'my-workflow',          // required, non-empty string
+  description: 'what it does',  // required, non-empty string
+  whenToUse: '...',             // optional
+  phases: [{ title: 'Scan' }],  // optional
+};
+
+export default async function (wf) {
+  // wf provides agent / parallel / pipeline / phase / log / budget / args
+  return await wf.agent('do the leaf work');
+}</code></pre>
+
+<ul>
+<li>Normal case: the engine imports the file, validates <code>meta</code>, runs the default function with the injected orchestration API, and prints the returned value as JSON.</li>
+<li>Failure case: a missing default export, or a <code>meta</code> without non-empty <code>name</code> and <code>description</code>, fails loading with a descriptive error before any agent is spawned.</li>
+<li>A thrown error inside the body propagates out as a run failure (exit code 1 from the CLI).</li>
+</ul>
+
+<figure>
+<svg viewBox="0 0 720 250" font-family="inherit">
+<defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--ink-faint)"/></marker></defs>
+<rect x="10" y="40" width="160" height="84" rx="8" style="fill:var(--code-bg);stroke:var(--line)"/>
+<text x="90" y="66" text-anchor="middle" font-size="12.5" font-weight="600" style="fill:var(--ink)">workflow module</text>
+<text x="90" y="86" text-anchor="middle" font-size="11" style="fill:var(--ink-soft)">meta literal</text>
+<text x="90" y="103" text-anchor="middle" font-size="11" style="fill:var(--ink-soft)">default async function</text>
+<line x1="170" y1="82" x2="258" y2="82" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar)"/>
+<text x="214" y="68" text-anchor="middle" font-size="10" style="fill:var(--ink-faint)">import +</text>
+<text x="214" y="100" text-anchor="middle" font-size="10" style="fill:var(--ink-faint)">validate meta</text>
+<rect x="260" y="30" width="250" height="104" rx="8" style="fill:#fff;stroke:var(--accent)" stroke-width="1.5"/>
+<text x="385" y="58" text-anchor="middle" font-size="12.5" font-weight="600" style="fill:var(--ink)">deterministic JS body</text>
+<text x="385" y="78" text-anchor="middle" font-size="11" style="fill:var(--ink-soft)">loops · conditionals · fan-out</text>
+<text x="385" y="96" text-anchor="middle" font-size="11" style="fill:var(--ink-soft)">zero model tokens</text>
+<line x1="510" y1="82" x2="568" y2="82" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar)"/>
+<text x="539" y="70" text-anchor="middle" font-size="10" style="fill:var(--ink-faint)">return value</text>
+<rect x="570" y="40" width="140" height="84" rx="8" style="fill:var(--code-bg);stroke:var(--line)"/>
+<text x="640" y="76" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--ink)">result printed</text>
+<text x="640" y="95" text-anchor="middle" font-size="11" style="fill:var(--ink-soft)">as JSON (stdout)</text>
+<line x1="335" y1="134" x2="225" y2="178" stroke-width="1.4" style="stroke:var(--accent)" marker-end="url(#ar)"/>
+<line x1="385" y1="134" x2="390" y2="178" stroke-width="1.4" style="stroke:var(--accent)" marker-end="url(#ar)"/>
+<line x1="435" y1="134" x2="555" y2="178" stroke-width="1.4" style="stroke:var(--accent)" marker-end="url(#ar)"/>
+<rect x="150" y="180" width="150" height="52" rx="8" style="fill:#fff;stroke:var(--line)"/>
+<text x="225" y="202" text-anchor="middle" font-size="11.5" style="fill:var(--ink)">agent() call</text>
+<text x="225" y="219" text-anchor="middle" font-size="10.5" style="fill:var(--ink-faint)">fresh context</text>
+<rect x="315" y="180" width="150" height="52" rx="8" style="fill:#fff;stroke:var(--line)"/>
+<text x="390" y="202" text-anchor="middle" font-size="11.5" style="fill:var(--ink)">agent() call</text>
+<text x="390" y="219" text-anchor="middle" font-size="10.5" style="fill:var(--ink-faint)">fresh context</text>
+<rect x="480" y="180" width="150" height="52" rx="8" style="fill:#fff;stroke:var(--line)"/>
+<text x="555" y="202" text-anchor="middle" font-size="11.5" style="fill:var(--ink)">agent() call</text>
+<text x="555" y="219" text-anchor="middle" font-size="10.5" style="fill:var(--ink-faint)">fresh context</text>
+</svg>
+<figcaption>Fig. 1 — The engine imports the module, validates <code>meta</code>, and runs the body with the injected API. Orchestration is plain JavaScript; the model works only inside <code>agent()</code> calls, each in its own fresh context.</figcaption>
+</figure>
+
+<h2 id="capabilities">Capabilities</h2>
+
+<ul>
+<li>Loads a workflow module from any local path (resolved against the engine's cwd, imported via file URL).</li>
+<li>Validates the <code>meta</code> contract before execution: <code>name</code> and <code>description</code> are required non-empty strings.</li>
+<li>Executes the body with a fully injected API — workflows import nothing from the engine.</li>
+<li>Mirrors the Claude Code Workflow tool script shape (meta literal + body using the same globals), keeping scripts portable in both directions.</li>
+</ul>
+
+<h2 id="boundaries">Boundaries</h2>
+
+<ul>
+<li>No determinism sandbox: <code>Date.now()</code> / <code>Math.random()</code> are not blocked (unlike the Claude Code Workflow tool). Trusted, self-authored scripts are assumed.</li>
+<li>No orchestration journal or resume; a run is fire-and-forget.</li>
+<li>No daemon and no cross-run durability; fleets are per-trigger and ephemeral.</li>
+<li>The orchestration primitives themselves are FR 02; how the engine is invoked is FR 04.</li>
+</ul>
+
+<h2 id="traceability">Traceability</h2>
+
+<ul>
+<li><strong>Related FR</strong>: <a href="02-orchestration-api.html">02-orchestration-api.html</a>, <a href="04-run-cli.html">04-run-cli.html</a></li>
+</ul>
+</main>
+</body>
+</html>

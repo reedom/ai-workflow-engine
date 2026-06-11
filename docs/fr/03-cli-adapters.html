@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FR 03: CLI Adapter Layer</title>
+<script type="application/kusara+yaml">
+refs:
+  id: fr:03-cli-adapters
+  kind: fr
+  title: "CLI Adapter Layer"
+  spec: ai-workflow-engine
+  related:
+    - fr:02-orchestration-api
+    - fr:05-permission-escalation
+  modules:
+    - src/adapters/
+</script>
+<style>
+:root {
+  --ink: #1f2429;
+  --ink-soft: #525a63;
+  --ink-faint: #8a929b;
+  --line: #e0ddd5;
+  --accent: #8a4f24;
+  --code-bg: #f0eee8;
+  --bg: #fdfcfa;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15.5px;
+  line-height: 1.65;
+}
+main { max-width: 800px; margin: 0 auto; padding: 48px 28px 96px; }
+h1 { font-size: 30px; line-height: 1.2; margin: 0 0 18px; letter-spacing: -.01em; }
+h2 { font-size: 21px; margin: 36px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+h3 { font-size: 17px; margin: 26px 0 8px; }
+p, ul, ol { margin: 0 0 12px; }
+ul, ol { padding-left: 26px; }
+li { margin-bottom: 4px; }
+a { color: var(--accent); }
+blockquote {
+  margin: 0 0 18px;
+  padding: 6px 18px;
+  border-left: 3px solid var(--accent);
+  color: var(--ink-soft);
+  font-style: italic;
+}
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .88em;
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 1.5px 5px;
+}
+pre {
+  background: #23282e;
+  color: #e8e6e1;
+  border-radius: 8px;
+  padding: 16px 20px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 18px;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+table { border-collapse: collapse; width: 100%; margin: 0 0 18px; font-size: 14px; }
+th, td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
+th { background: var(--code-bg); font-weight: 600; }
+figure {
+  margin: 18px 0 22px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+figure svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+figcaption { font-size: 12.5px; color: var(--ink-faint); margin-top: 10px; }
+.doc-nav {
+  font-size: 13px;
+  color: var(--ink-faint);
+  margin-bottom: 28px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.doc-nav a { color: var(--ink-soft); text-decoration: none; }
+.doc-nav a:hover { color: var(--accent); }
+@media (max-width: 600px) { main { padding: 28px 16px 64px; } }
+</style>
+</head>
+<body>
+<main>
+<nav class="doc-nav"><a href="README.md">docs/fr</a> · fr:03-cli-adapters</nav>
+<h1>FR 03: CLI Adapter Layer</h1>
+
+<blockquote><p>The orchestration core is agent-CLI-agnostic; each local agent CLI gets a thin adapter that maps one <code>agent()</code> call to one headless child process and parses the result back into a common envelope.</p></blockquote>
+
+<h2 id="purpose">Purpose</h2>
+
+<p>The engine's substrate is local agent CLIs (<code>claude</code>, <code>codex</code>, others later). Keeping each CLI behind a small adapter lets one workflow mix CLIs per call and keeps the core free of CLI-specific knowledge.</p>
+
+<h2 id="user-visible-behavior">User-visible Behavior</h2>
+
+<p>An adapter exposes <code>id</code>, capability flags <code>caps { schema, resume, tools }</code>, and <code>run(spec)</code>. The capability flags tell authors what an <code>agent()</code> call can use on that adapter.</p>
+
+<table>
+<thead><tr><th>Adapter</th><th>Invocation</th><th>schema</th><th>tools</th><th>Notes</th></tr></thead>
+<tbody>
+<tr><td><code>claude</code> (default)</td><td><code>claude -p &lt;prompt&gt; --output-format json [--json-schema &lt;s&gt;] [--model &lt;m&gt;] [--append-system-prompt &lt;i&gt;] [--allowedTools ...] [--settings &lt;f&gt;]</code></td><td>yes</td><td>yes</td><td>stdin is ignored (avoids the <code>-p</code> stdin wait); <code>--settings</code> is injected only for escalation (FR 05)</td></tr>
+<tr><td><code>codex</code></td><td><code>codex exec &lt;prompt&gt; --json --skip-git-repo-check --ephemeral --sandbox &lt;mode&gt; [--model &lt;m&gt;]</code></td><td>no</td><td>no</td><td><code>instructions</code> are folded into the prompt (no separate system-prompt flag); sandbox mode is adapter configuration</td></tr>
+</tbody>
+</table>
+
+<figure>
+<svg viewBox="0 0 780 230" font-family="inherit">
+<defs><marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--ink-faint)"/></marker></defs>
+<rect x="10" y="80" width="160" height="64" rx="8" style="fill:var(--code-bg);stroke:var(--line)"/>
+<text x="90" y="107" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--ink)">agent(prompt, opts)</text>
+<text x="90" y="126" text-anchor="middle" font-size="10.5" style="fill:var(--ink-soft)">orchestration core</text>
+<line x1="170" y1="98" x2="238" y2="58" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar3)"/>
+<text x="200" y="62" text-anchor="middle" font-size="10" style="fill:var(--ink-faint)">default</text>
+<line x1="170" y1="126" x2="238" y2="166" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar3)"/>
+<text x="198" y="166" text-anchor="middle" font-size="10" style="fill:var(--ink-faint)">opts.cli</text>
+<rect x="240" y="28" width="180" height="62" rx="8" style="fill:#fff;stroke:var(--accent)" stroke-width="1.5"/>
+<text x="330" y="52" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--ink)">claude adapter</text>
+<text x="330" y="72" text-anchor="middle" font-size="10.5" style="fill:var(--ink-soft)">caps: schema yes · tools yes</text>
+<rect x="240" y="136" width="180" height="62" rx="8" style="fill:#fff;stroke:var(--accent)" stroke-width="1.5"/>
+<text x="330" y="160" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--ink)">codex adapter</text>
+<text x="330" y="180" text-anchor="middle" font-size="10.5" style="fill:var(--ink-soft)">caps: schema no · tools no</text>
+<line x1="420" y1="59" x2="478" y2="59" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar3)"/>
+<line x1="420" y1="167" x2="478" y2="167" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar3)"/>
+<rect x="480" y="28" width="140" height="62" rx="8" style="fill:var(--code-bg);stroke:var(--line)"/>
+<text x="550" y="52" text-anchor="middle" font-size="11.5" style="fill:var(--ink)">claude -p …</text>
+<text x="550" y="72" text-anchor="middle" font-size="10.5" style="fill:var(--ink-soft)">one child per call</text>
+<rect x="480" y="136" width="140" height="62" rx="8" style="fill:var(--code-bg);stroke:var(--line)"/>
+<text x="550" y="160" text-anchor="middle" font-size="11.5" style="fill:var(--ink)">codex exec …</text>
+<text x="550" y="180" text-anchor="middle" font-size="10.5" style="fill:var(--ink-soft)">one child per call</text>
+<line x1="620" y1="59" x2="668" y2="98" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar3)"/>
+<line x1="620" y1="167" x2="668" y2="128" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar3)"/>
+<rect x="660" y="80" width="110" height="64" rx="8" style="fill:#fff;stroke:var(--line)"/>
+<text x="715" y="103" text-anchor="middle" font-size="11.5" font-weight="600" style="fill:var(--ink)">common</text>
+<text x="715" y="121" text-anchor="middle" font-size="11.5" font-weight="600" style="fill:var(--ink)">envelope</text>
+<text x="715" y="137" text-anchor="middle" font-size="9.5" style="fill:var(--ink-soft)">text · data? · usage</text>
+</svg>
+<figcaption>Fig. 1 — Each <code>agent()</code> call selects one adapter, which spawns one fresh headless child process and parses its CLI-native output back into the common result envelope <code>{ text, data?, raw, usage, sessionId? }</code>.</figcaption>
+</figure>
+
+<ul>
+<li>Normal case: the child exits 0 and the adapter returns <code>{ text, data?, raw, usage, sessionId? }</code>. For claude, <code>data</code> is the structured output when a schema was requested; for codex, <code>text</code> is the final agent message from the JSONL event stream.</li>
+<li>Failure case: non-zero exit throws <code>&lt;cli&gt; exited &lt;code&gt;: &lt;stderr excerpt&gt;</code>. A claude <code>is_error</code> envelope or a codex <code>turn.failed</code> event throws with the reported detail. Empty stdout throws.</li>
+<li>Requesting <code>schema</code> on the codex adapter throws immediately (<code>codex adapter does not support schema output yet</code>) before spawning anything.</li>
+</ul>
+
+<h2 id="capabilities">Capabilities</h2>
+
+<ul>
+<li>One fresh child process per <code>agent()</code> call, spawned in the call's <code>cwd</code>.</li>
+<li>Common result envelope across CLIs, including token usage parsed from each CLI's native format (claude <code>usage</code>, codex <code>turn.completed</code> usage).</li>
+<li>Codex JSONL parsing tolerates interleaved plain-text notices between events.</li>
+<li>Codex sandbox level is configurable when constructing the adapter (<code>read-only</code> / <code>workspace-write</code> / <code>danger-full-access</code>); the bundled CLI registers codex with <code>danger-full-access</code> to match the trust level the claude adapter grants via unrestricted Bash.</li>
+<li>Injectable spawn function for testing (adapters are unit-tested without real CLIs).</li>
+</ul>
+
+<h2 id="boundaries">Boundaries</h2>
+
+<ul>
+<li>No <code>antigravity</code> (or other) adapters yet; the seam is <code>CliAdapter</code>, added as needed.</li>
+<li><code>caps.resume</code> is informational: native session resume (<code>claude -p --resume &lt;sessionId&gt;</code>) is not wired into the API yet.</li>
+<li>No engine-side schema fallback for adapters without <code>caps.schema</code> — the design's prompt-instructed JSON + client-side validation fallback is not implemented; the codex adapter rejects schema requests instead.</li>
+<li>The <code>--cmux</code> observability skin from the design is roadmap, not built.</li>
+<li>Codex agents do not participate in permission escalation (FR 05); they keep sandbox-or-fail behavior.</li>
+</ul>
+
+<h2 id="traceability">Traceability</h2>
+
+<ul>
+<li><strong>Related FR</strong>: <a href="02-orchestration-api.html">02-orchestration-api.html</a>, <a href="05-permission-escalation.html">05-permission-escalation.html</a></li>
+</ul>
+</main>
+</body>
+</html>

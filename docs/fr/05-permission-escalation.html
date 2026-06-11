@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FR 05: Permission Escalation</title>
+<script type="application/kusara+yaml">
+refs:
+  id: fr:05-permission-escalation
+  kind: fr
+  title: "Permission Escalation"
+  spec: permission-escalation
+  related:
+    - fr:02-orchestration-api
+    - fr:03-cli-adapters
+    - fr:04-run-cli
+  modules:
+    - src/escalation/
+</script>
+<style>
+:root {
+  --ink: #1f2429;
+  --ink-soft: #525a63;
+  --ink-faint: #8a929b;
+  --line: #e0ddd5;
+  --accent: #8a4f24;
+  --code-bg: #f0eee8;
+  --bg: #fdfcfa;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 15.5px;
+  line-height: 1.65;
+}
+main { max-width: 800px; margin: 0 auto; padding: 48px 28px 96px; }
+h1 { font-size: 30px; line-height: 1.2; margin: 0 0 18px; letter-spacing: -.01em; }
+h2 { font-size: 21px; margin: 36px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+h3 { font-size: 17px; margin: 26px 0 8px; }
+p, ul, ol { margin: 0 0 12px; }
+ul, ol { padding-left: 26px; }
+li { margin-bottom: 4px; }
+a { color: var(--accent); }
+blockquote {
+  margin: 0 0 18px;
+  padding: 6px 18px;
+  border-left: 3px solid var(--accent);
+  color: var(--ink-soft);
+  font-style: italic;
+}
+code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .88em;
+  background: var(--code-bg);
+  border-radius: 4px;
+  padding: 1.5px 5px;
+}
+pre {
+  background: #23282e;
+  color: #e8e6e1;
+  border-radius: 8px;
+  padding: 16px 20px;
+  overflow-x: auto;
+  font-size: 13px;
+  line-height: 1.6;
+  margin: 0 0 18px;
+}
+pre code { background: none; padding: 0; font-size: inherit; }
+table { border-collapse: collapse; width: 100%; margin: 0 0 18px; font-size: 14px; }
+th, td { border: 1px solid var(--line); padding: 7px 11px; text-align: left; vertical-align: top; }
+th { background: var(--code-bg); font-weight: 600; }
+figure {
+  margin: 18px 0 22px;
+  padding: 18px;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+}
+figure svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+figcaption { font-size: 12.5px; color: var(--ink-faint); margin-top: 10px; }
+.doc-nav {
+  font-size: 13px;
+  color: var(--ink-faint);
+  margin-bottom: 28px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.doc-nav a { color: var(--ink-soft); text-decoration: none; }
+.doc-nav a:hover { color: var(--accent); }
+@media (max-width: 600px) { main { padding: 28px 16px 64px; } }
+</style>
+</head>
+<body>
+<main>
+<nav class="doc-nav"><a href="README.md">docs/fr</a> · fr:05-permission-escalation</nav>
+<h1>FR 05: Permission Escalation</h1>
+
+<blockquote><p>When a headless Claude agent makes a tool call its grants don't cover, the run escalates the call to a human over agentbus and blocks on a full approve/deny round-trip — instead of silently denying it.</p></blockquote>
+
+<h2 id="purpose">Purpose</h2>
+
+<p>Headless agents (<code>claude -p</code>) cannot show a permission prompt; a blocked action just fails. Escalation gives the operator a way to approve or deny exactly those calls from anywhere on the bus, without babysitting a terminal, while keeping every failure path at least as restrictive as today.</p>
+
+<h2 id="user-visible-behavior">User-visible Behavior</h2>
+
+<p>Escalation is opt-in per run: <code>--escalate agentbus:&lt;to&gt;</code> (FR 04). The operator registers their bus address once: <code>agentbus register &lt;to&gt; --persistent</code>.</p>
+
+<ul>
+<li>Normal case (allow): an agent calls a tool outside its grants → the run logs <code>escalating &lt;label&gt;: &lt;tool&gt; &lt;input&gt;</code> → an ask appears in the operator's inbox (<code>agentbus check-inbox &lt;to&gt;</code>) carrying <code>agentLabel</code>, <code>cli</code>, <code>toolName</code>, <code>toolInput</code>, <code>cwd</code> → the operator replies <code>echo '{"behavior":"allow"}' | agentbus reply &lt;msg-id&gt; &lt;to&gt;</code> → the run logs <code>decision for &lt;label&gt;: allow</code> and the agent proceeds.</li>
+<li>Deny: a reply with anything other than an explicit <code>"behavior": "allow"</code> denies the call; the agent continues without it.</li>
+<li>Timeout: with the default policy the call is denied after 5 minutes (<code>decision: deny (escalation timeout)</code>); a late reply is ignored.</li>
+<li>Covered calls never ping the operator: anything matched by the call's <code>tools</code> grant or by the allow/deny rules in the operator's Claude settings chain defers to Claude Code's normal permission evaluation silently.</li>
+</ul>
+
+<figure>
+<svg viewBox="0 0 780 320" font-family="inherit">
+<defs><marker id="ar5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--ink-faint)"/></marker>
+<marker id="ar5a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" style="fill:var(--accent)"/></marker></defs>
+<text x="90" y="24" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--ink)">claude agent</text>
+<text x="300" y="24" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--ink)">run broker</text>
+<text x="510" y="24" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--ink)">agentbus</text>
+<text x="700" y="24" text-anchor="middle" font-size="12" font-weight="600" style="fill:var(--ink)">operator</text>
+<line x1="90" y1="34" x2="90" y2="252" stroke-dasharray="3 4" style="stroke:var(--line)"/>
+<line x1="300" y1="34" x2="300" y2="252" stroke-dasharray="3 4" style="stroke:var(--line)"/>
+<line x1="510" y1="34" x2="510" y2="252" stroke-dasharray="3 4" style="stroke:var(--line)"/>
+<line x1="700" y1="34" x2="700" y2="252" stroke-dasharray="3 4" style="stroke:var(--line)"/>
+<line x1="90" y1="58" x2="300" y2="58" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar5)"/>
+<text x="195" y="50" text-anchor="middle" font-size="10.5" style="fill:var(--ink-soft)">uncovered tool call (hook → unix socket)</text>
+<rect x="220" y="68" width="290" height="20" rx="10" style="fill:var(--code-bg)"/>
+<text x="365" y="82" text-anchor="middle" font-size="10" style="fill:var(--ink-soft)">grant / rule match — covered calls never escalate</text>
+<line x1="300" y1="110" x2="510" y2="110" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar5)"/>
+<text x="405" y="102" text-anchor="middle" font-size="10.5" style="fill:var(--ink-soft)">ask as ext:awe-&lt;runId&gt;</text>
+<line x1="510" y1="138" x2="700" y2="138" stroke-width="1.4" style="stroke:var(--ink-faint)" marker-end="url(#ar5)"/>
+<text x="605" y="130" text-anchor="middle" font-size="10.5" style="fill:var(--ink-soft)">inbox: toolName · toolInput · cwd …</text>
+<line x1="700" y1="172" x2="510" y2="172" stroke-width="1.6" style="stroke:var(--accent)" marker-end="url(#ar5a)"/>
+<text x="605" y="164" text-anchor="middle" font-size="10.5" style="fill:var(--accent)">reply {"behavior":"allow"}</text>
+<line x1="510" y1="196" x2="300" y2="196" stroke-width="1.6" style="stroke:var(--accent)" marker-end="url(#ar5a)"/>
+<line x1="300" y1="220" x2="90" y2="220" stroke-width="1.6" style="stroke:var(--accent)" marker-end="url(#ar5a)"/>
+<text x="195" y="212" text-anchor="middle" font-size="10.5" style="fill:var(--accent)">decision: allow → tool runs</text>
+<text x="90" y="244" text-anchor="middle" font-size="9.5" style="fill:var(--ink-faint)">[wf] escalating … / decision …</text>
+<rect x="30" y="264" width="720" height="44" rx="8" style="fill:#fff;stroke:var(--ink-faint)" stroke-dasharray="4 3"/>
+<text x="46" y="282" font-size="10.5" style="fill:var(--ink-soft)">every other path resolves to deny: a reply without explicit "behavior":"allow" · timeout (default 5 min, late reply ignored)</text>
+<text x="46" y="298" font-size="10.5" style="fill:var(--ink-soft)">· channel error · malformed request · helper crash · run shutdown — failure is never more permissive</text>
+</svg>
+<figcaption>Fig. 1 — Escalation round-trip. Only an explicit allow reply (accent path) lets the tool run; the dashed box lists the paths that all collapse to deny. The decision happens before the tool executes.</figcaption>
+</figure>
+
+<p>Per-call policy (FR 02): <code>agent(p, { escalation: { timeoutMs?, onTimeout?: 'deny' | 'wait', disabled? } })</code>. <code>'wait'</code> blocks indefinitely for an answer; <code>disabled: true</code> opts a call out of an escalation-enabled run.</p>
+
+<h2 id="capabilities">Capabilities</h2>
+
+<ul>
+<li>Full approve/deny round-trip over agentbus <code>ask</code>/<code>reply</code>; the engine needs no bus registration (it sends as <code>ext:awe-&lt;runId&gt;</code>).</li>
+<li>Conservative rule matching before any human traffic: exact tool name, <code>Tool(*)</code>, <code>Bash(prefix:*)</code>, <code>Bash(exact)</code>; anything the matcher cannot interpret escalates. <code>ask</code>-rules escalate by design.</li>
+<li>Per-run broker with one unix socket; per-call policy and grants travel with each request, so concurrent agents with different policies are safe.</li>
+<li>Every escalation request and decision is narrated through the run log (<code>[wf]</code> lines), so the transcript shows the full audit trail.</li>
+<li>Failure is never more permissive: channel errors, timeouts, malformed requests, helper crashes, and run shutdown all resolve to deny (or to Claude Code's native headless deny).</li>
+</ul>
+
+<h2 id="boundaries">Boundaries</h2>
+
+<ul>
+<li>Claude agents only. Codex agents keep sandbox-or-fail behavior; the broker exposes the seam (<code>decide()</code>) a future codex app-server adapter plugs into.</li>
+<li>agentbus is the only channel; a Slack connector is a planned second <code>ApprovalChannel</code> implementation.</li>
+<li>Approve/deny only — no allow-with-modified-input, and no "always allow this pattern" memory across requests or runs.</li>
+<li>The decision happens <strong>before</strong> the tool runs; the escalation channel does not report the tool's output back to the operator afterwards.</li>
+</ul>
+
+<h2 id="traceability">Traceability</h2>
+
+<ul>
+<li><strong>Related FR</strong>: <a href="02-orchestration-api.html">02-orchestration-api.html</a>, <a href="03-cli-adapters.html">03-cli-adapters.html</a>, <a href="04-run-cli.html">04-run-cli.html</a></li>
+</ul>
+</main>
+</body>
+</html>
