@@ -21,7 +21,7 @@ Kind definitions consumed by `kusara`. The CLI loads `${KUSARA_DOC_ROOT}/kinds.m
 #                    this kind to index.output.
 kinds:
   - name: fr
-    path_globs: ["docs/fr/[0-9]*.md"]
+    path_globs: ["docs/fr/[0-9]*.html"]
     id_pattern: "fr:{slug}"
     index:
       output: docs/fr/index.md

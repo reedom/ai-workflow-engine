@@ -30,5 +30,4 @@ What this feature **does not** do, and the boundary against neighboring features
 
 ## Traceability
 
-- **Spec**: `docs/superpowers/specs/<spec>.md` § <section>
-- **Related FR**: NN-xxx.md (if any)
+- **Related FR**: NN-xxx.html (if any)
