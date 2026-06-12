@@ -33,6 +33,10 @@ export interface RunOptions {
   args?: unknown;
   budget?: number | null;
   concurrency?: number;
+  // Run-level working directory: the default cwd for every agent spawn
+  // (per-call AgentOptions.cwd wins) AND the directory whose .claude
+  // settings provide permission defer rules. Defaults to process.cwd().
+  cwd?: string;
   onLog?: (msg: string) => void;
   escalation?: {
     channel: ApprovalChannel;
@@ -49,6 +53,7 @@ export async function runWorkflow(mod: WorkflowModule, opts: RunOptions): Promis
       args: opts.args,
       budget: makeBudget(opts.budget ?? null),
       concurrency: opts.concurrency ?? 8,
+      cwd: opts.cwd,
       onLog: opts.onLog,
       escalation,
     });
@@ -67,7 +72,7 @@ async function startEscalation(
   const broker = new EscalationBroker({
     runId: cfg.runId,
     channel: cfg.channel,
-    settingsRules: loadSettingsDeferRules(process.cwd()),
+    settingsRules: loadSettingsDeferRules(opts.cwd ?? process.cwd()),
     defaultPolicy,
     log: opts.onLog,
   });

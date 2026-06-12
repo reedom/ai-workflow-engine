@@ -9,6 +9,7 @@ export interface OrchestrationDeps {
   args: unknown;
   budget: MutableBudget;
   concurrency: number;
+  cwd?: string; // run-level default agent cwd; per-call opts.cwd wins
   onLog?: (msg: string) => void;
   escalation?: { broker: EscalationBroker; defaultPolicy: EscalationPolicy };
 }
@@ -46,7 +47,7 @@ export function createWorkflowApi(deps: OrchestrationDeps): WorkflowApi {
         schema: opts.schema,
         instructions: opts.instructions,
         tools: opts.tools,
-        cwd: opts.cwd,
+        cwd: opts.cwd ?? deps.cwd,
         escalation: buildEscalation(prompt, opts),
       });
       deps.budget.add(result.usage.inputTokens + result.usage.outputTokens);

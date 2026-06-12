@@ -113,7 +113,7 @@ figcaption { font-size: 12.5px; color: var(--ink-faint); margin-top: 10px; }
 <li>Normal case (allow): an agent calls a tool outside its grants → the run logs <code>escalating &lt;label&gt;: &lt;tool&gt; &lt;input&gt;</code> → an ask appears in the operator's inbox (<code>agentbus check-inbox &lt;to&gt;</code>) carrying <code>agentLabel</code>, <code>cli</code>, <code>toolName</code>, <code>toolInput</code>, <code>cwd</code> → the operator replies <code>echo '{"behavior":"allow"}' | agentbus reply &lt;msg-id&gt; &lt;to&gt;</code> → the run logs <code>decision for &lt;label&gt;: allow</code> and the agent proceeds.</li>
 <li>Deny: a reply with anything other than an explicit <code>"behavior": "allow"</code> denies the call; the agent continues without it.</li>
 <li>Timeout: with the default policy the call is denied after 5 minutes (<code>decision: deny (escalation timeout)</code>); a late reply is ignored.</li>
-<li>Covered calls never ping the operator: anything matched by the call's <code>tools</code> grant or by the allow/deny rules in the operator's Claude settings chain defers to Claude Code's normal permission evaluation silently.</li>
+<li>Covered calls never ping the operator: anything matched by the call's <code>tools</code> grant or by the allow/deny rules in the operator's Claude settings chain defers to Claude Code's normal permission evaluation silently. The settings chain is read from the run's working directory (<code>RunOptions.cwd</code> when an embedder sets one, else <code>process.cwd()</code>) plus the home directory.</li>
 </ul>
 
 <figure>
