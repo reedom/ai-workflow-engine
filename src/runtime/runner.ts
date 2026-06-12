@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CliAdapter, WorkflowMeta, WorkflowModule } from '../types.js';
 import type { ApprovalChannel, EscalationPolicy } from '../escalation/types.js';
@@ -46,6 +47,9 @@ export interface RunOptions {
 }
 
 export async function runWorkflow(mod: WorkflowModule, opts: RunOptions): Promise<unknown> {
+  // Pin once: a relative cwd must not re-anchor if the host calls
+  // process.chdir() between defer-rule loading and agent spawns.
+  if (opts.cwd !== undefined) opts = { ...opts, cwd: resolve(opts.cwd) };
   const escalation = opts.escalation ? await startEscalation(opts) : undefined;
   try {
     const api = createWorkflowApi({

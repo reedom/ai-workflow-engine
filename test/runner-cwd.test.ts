@@ -12,9 +12,11 @@ import { runWorkflow } from '../src/runtime/runner.js';
 import type { ApprovalChannel } from '../src/escalation/types.js';
 import type { AgentSpec, CliAdapter, WorkflowModule } from '../src/types.js';
 
+// Stubbed (not wrapped): the real implementation reads the host's
+// ~/.claude/settings.json, which would make these tests environment-dependent.
 vi.mock('../src/escalation/rules.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../src/escalation/rules.js')>();
-  return { ...real, loadSettingsDeferRules: vi.fn(real.loadSettingsDeferRules) };
+  return { ...real, loadSettingsDeferRules: vi.fn(() => []) };
 });
 import { loadSettingsDeferRules } from '../src/escalation/rules.js';
 
@@ -63,6 +65,14 @@ describe('agent spawn cwd', () => {
       adapters: { claude: captureAdapter(specs) },
     });
     expect(specs[0]?.cwd).toBeUndefined();
+  });
+
+  it('uses the per-call cwd when no run default is set', async () => {
+    const specs: AgentSpec[] = [];
+    await runWorkflow(mod(async (wf) => wf.agent('work', { cwd: '/other/repo' })), {
+      adapters: { claude: captureAdapter(specs) },
+    });
+    expect(specs[0]?.cwd).toBe('/other/repo');
   });
 });
 
