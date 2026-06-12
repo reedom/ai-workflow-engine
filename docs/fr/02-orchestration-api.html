@@ -110,7 +110,7 @@ figcaption { font-size: 12.5px; color: var(--ink-faint); margin-top: 10px; }
 <h2 id="user-visible-behavior">User-visible Behavior</h2>
 
 <ul>
-<li><code>agent(prompt, opts?) → Promise&lt;result&gt;</code> — spawns one CLI agent (default <code>claude</code>; <code>opts.cli</code> selects another adapter). <code>result</code> carries <code>text</code>, <code>data</code> (when <code>opts.schema</code> was given), <code>raw</code>, <code>usage {inputTokens, outputTokens}</code>, and <code>sessionId</code> when the adapter reports one. Options: <code>cli</code>, <code>model</code>, <code>schema</code>, <code>instructions</code> (system prompt), <code>tools</code>, <code>cwd</code>, <code>label</code>, <code>phase</code>, <code>escalation</code> (FR 05).</li>
+<li><code>agent(prompt, opts?) → Promise&lt;result&gt;</code> — spawns one CLI agent (default <code>claude</code>; <code>opts.cli</code> selects another adapter). <code>result</code> carries <code>text</code>, <code>data</code> (when <code>opts.schema</code> was given), <code>raw</code>, <code>usage {inputTokens, outputTokens}</code>, and <code>sessionId</code> when the adapter reports one. Options: <code>cli</code>, <code>model</code>, <code>schema</code>, <code>instructions</code> (system prompt), <code>tools</code>, <code>cwd</code> (defaults to the run-level <code>cwd</code> when one is set), <code>label</code>, <code>phase</code>, <code>escalation</code> (FR 05).</li>
 <li><code>parallel(thunks) → Promise&lt;Array&lt;T | null&gt;&gt;</code> — runs thunks concurrently and acts as a barrier. A thunk that throws resolves to <code>null</code> in the result array (the failure is logged); the call itself never rejects.</li>
 <li><code>pipeline(items, ...stages) → Promise&lt;Array&lt;unknown | null&gt;&gt;</code> — runs each item through all stages independently with <strong>no barrier between stages</strong>. Each stage receives <code>(prev, originalItem, index)</code>. A stage that throws drops that item to <code>null</code> and skips its remaining stages.</li>
 <li><code>phase(title)</code> — labels subsequent <code>log()</code> lines with the phase title and emits a <code>=== title ===</code> marker.</li>
@@ -170,6 +170,8 @@ figcaption { font-size: 12.5px; color: var(--ink-faint); margin-top: 10px; }
 <li>Token accounting: each agent result's <code>inputTokens + outputTokens</code> is added to the budget.</li>
 <li>Per-call adapter selection lets one workflow mix CLIs (e.g. claude and codex legs side by side).</li>
 <li>Per-call escalation policy overrides (<code>escalation: { timeoutMs, onTimeout, disabled }</code>, see FR 05).</li>
+<li>Run-level working directory: embedders set <code>RunOptions.cwd</code> to make every agent spawn in a target directory by default (per-call <code>cwd</code> wins) and to source permission defer rules from that directory's <code>.claude</code> settings (FR 05). Without it, agents spawn in the engine process's directory and defer rules come from <code>process.cwd()</code> — the CLI's behavior.</li>
+<li>Embeddable as a library: the package root exports <code>runWorkflow</code>/<code>loadWorkflow</code>, the adapter factories, and the escalation channel types, so a host process (e.g. a long-running dispatcher) can run workflows without the CLI.</li>
 </ul>
 
 <h2 id="boundaries">Boundaries</h2>

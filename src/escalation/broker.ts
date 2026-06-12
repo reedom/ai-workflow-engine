@@ -1,7 +1,7 @@
 // src/escalation/broker.ts
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, sep } from 'node:path';
 import { createServer, type Server, type Socket } from 'node:net';
 import type {
   ApprovalChannel,
@@ -15,7 +15,11 @@ import { matchesAnyRule } from './rules.js';
 export interface BrokerOptions {
   runId: string;
   channel: ApprovalChannel;
-  settingsRules?: string[];
+  settingsRules?: string[]; // global (home-level) rules; apply to every agent
+  // Directory-scoped rules: apply only to requests whose cwd is within
+  // `cwd`, so one repo's committed .claude settings never silently cover
+  // agents running in a different directory.
+  projectRules?: { cwd: string; rules: string[] };
   defaultPolicy?: EscalationPolicy;
   log?: (msg: string) => void;
 }
@@ -38,7 +42,11 @@ export class EscalationBroker {
 
   async decide(req: PermissionRequest): Promise<BrokerDecision> {
     if (this.closing) return { behavior: 'deny', reason: 'run shutdown' };
-    const rules = [...(req.rules ?? []), ...(this.opts.settingsRules ?? [])];
+    const rules = [
+      ...(req.rules ?? []),
+      ...(this.opts.settingsRules ?? []),
+      ...this.projectRulesFor(req),
+    ];
     if (matchesAnyRule(req.toolName, req.toolInput, rules)) return { behavior: 'defer' };
     const policy = req.policy ?? this.opts.defaultPolicy ?? DEFAULT_POLICY;
     this.log(`escalating ${req.agentLabel}: ${req.toolName} ${summarize(req.toolInput)}`);
@@ -47,6 +55,16 @@ export class EscalationBroker {
       `decision for ${req.agentLabel}: ${decision.behavior}${decision.reason ? ` (${decision.reason})` : ''}`,
     );
     return decision;
+  }
+
+  // A request with no cwd is assumed to run in the rules directory (the
+  // run-level cwd) — the hook omits cwd only in that default case.
+  private projectRulesFor(req: PermissionRequest): string[] {
+    const pr = this.opts.projectRules;
+    if (!pr) return [];
+    const agentCwd = req.cwd ?? pr.cwd;
+    const within = agentCwd === pr.cwd || agentCwd.startsWith(pr.cwd + sep);
+    return within ? pr.rules : [];
   }
 
   private escalate(req: PermissionRequest, policy: EscalationPolicy): Promise<BrokerDecision> {

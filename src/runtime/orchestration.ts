@@ -1,3 +1,4 @@
+import { resolve } from 'node:path';
 import type { AgentEscalation, AgentOptions, AgentResult, CliAdapter, Stage, WorkflowApi } from '../types.js';
 import type { EscalationPolicy } from '../escalation/types.js';
 import type { EscalationBroker } from '../escalation/broker.js';
@@ -9,6 +10,7 @@ export interface OrchestrationDeps {
   args: unknown;
   budget: MutableBudget;
   concurrency: number;
+  cwd?: string; // run-level default agent cwd; per-call opts.cwd wins
   onLog?: (msg: string) => void;
   escalation?: { broker: EscalationBroker; defaultPolicy: EscalationPolicy };
 }
@@ -16,6 +18,15 @@ export interface OrchestrationDeps {
 export function createWorkflowApi(deps: OrchestrationDeps): WorkflowApi {
   const limit = makeLimiter(deps.concurrency);
   let currentPhase = '';
+
+  // A relative per-call cwd resolves against the run-level cwd (or the
+  // process cwd at call time) — never at spawn time, where a host
+  // process.chdir() would re-anchor it. Empty string counts as unset.
+  function resolveAgentCwd(opts: AgentOptions): string | undefined {
+    const perCall = opts.cwd || undefined;
+    if (perCall === undefined) return deps.cwd;
+    return deps.cwd ? resolve(deps.cwd, perCall) : resolve(perCall);
+  }
 
   function buildEscalation(prompt: string, opts: AgentOptions): AgentEscalation | undefined {
     const esc = deps.escalation;
@@ -46,7 +57,7 @@ export function createWorkflowApi(deps: OrchestrationDeps): WorkflowApi {
         schema: opts.schema,
         instructions: opts.instructions,
         tools: opts.tools,
-        cwd: opts.cwd,
+        cwd: resolveAgentCwd(opts),
         escalation: buildEscalation(prompt, opts),
       });
       deps.budget.add(result.usage.inputTokens + result.usage.outputTokens);

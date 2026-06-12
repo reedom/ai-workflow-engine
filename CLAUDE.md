@@ -13,6 +13,7 @@ fresh context.
 ## Layout
 
 - `src/cli.ts` -- `ai-workflow-engine run` entry point
+- `src/index.ts` -- public library surface for embedders (package root exports)
 - `src/runtime/` -- orchestration globals (`agent`/`parallel`/`pipeline`), runner, budget, concurrency limiter
 - `src/adapters/` -- per-CLI adapters (claude, codex)
 - `src/escalation/` -- permission escalation broker (agentbus)
