@@ -1,13 +1,18 @@
 // Run-level cwd contract (RunOptions.cwd):
 //
-//   runWorkflow({ cwd })
+//   runWorkflow({ cwd })          — validated: must be an existing directory
 //        │
 //        ├─► createWorkflowApi deps.cwd ──► agent spawn cwd
-//        │      (per-call AgentOptions.cwd wins over the run default)
+//        │      (per-call AgentOptions.cwd wins; a RELATIVE per-call cwd
+//        │       resolves against the run cwd, never at spawn time;
+//        │       empty string counts as unset)
 //        │
 //        └─► loadSettingsDeferRules(cwd) ──► permission defer rules
 //               (no cwd given ──► process.cwd(), the original CLI behavior)
-import { describe, it, expect, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { describe, it, expect, vi, beforeAll, afterAll } from 'vitest';
 import { runWorkflow } from '../src/runtime/runner.js';
 import type { ApprovalChannel } from '../src/escalation/types.js';
 import type { AgentSpec, CliAdapter, WorkflowModule } from '../src/types.js';
@@ -19,6 +24,14 @@ vi.mock('../src/escalation/rules.js', async (importOriginal) => {
   return { ...real, loadSettingsDeferRules: vi.fn(() => []) };
 });
 import { loadSettingsDeferRules } from '../src/escalation/rules.js';
+
+let runDir: string;
+beforeAll(() => {
+  runDir = mkdtempSync(join(tmpdir(), 'awe-cwd-test-'));
+});
+afterAll(() => {
+  rmSync(runDir, { recursive: true, force: true });
+});
 
 function captureAdapter(specs: AgentSpec[]): CliAdapter {
   return {
@@ -35,6 +48,16 @@ function mod(body: WorkflowModule['default']): WorkflowModule {
   return { meta: { name: 'wf', description: 'd' }, default: body };
 }
 
+async function runAgent(opts: { runCwd?: string; callCwd?: string }): Promise<string | undefined> {
+  const specs: AgentSpec[] = [];
+  const agentOpts = opts.callCwd === undefined ? {} : { cwd: opts.callCwd };
+  await runWorkflow(mod(async (wf) => wf.agent('work', agentOpts)), {
+    adapters: { claude: captureAdapter(specs) },
+    cwd: opts.runCwd,
+  });
+  return specs[0]?.cwd;
+}
+
 const idleChannel: ApprovalChannel = {
   id: 'fake',
   request: async () => ({ behavior: 'deny' }),
@@ -42,37 +65,35 @@ const idleChannel: ApprovalChannel = {
 
 describe('agent spawn cwd', () => {
   it('defaults to the run-level cwd', async () => {
-    const specs: AgentSpec[] = [];
-    await runWorkflow(mod(async (wf) => wf.agent('work')), {
-      adapters: { claude: captureAdapter(specs) },
-      cwd: '/target/repo',
-    });
-    expect(specs[0]?.cwd).toBe('/target/repo');
+    expect(await runAgent({ runCwd: runDir })).toBe(runDir);
   });
 
-  it('lets a per-call cwd win over the run default', async () => {
-    const specs: AgentSpec[] = [];
-    await runWorkflow(mod(async (wf) => wf.agent('work', { cwd: '/other/repo' })), {
-      adapters: { claude: captureAdapter(specs) },
-      cwd: '/target/repo',
-    });
-    expect(specs[0]?.cwd).toBe('/other/repo');
+  it('lets an absolute per-call cwd win over the run default', async () => {
+    expect(await runAgent({ runCwd: runDir, callCwd: '/other/repo' })).toBe('/other/repo');
+  });
+
+  it('resolves a relative per-call cwd against the run cwd', async () => {
+    expect(await runAgent({ runCwd: runDir, callCwd: 'sub/dir' })).toBe(join(runDir, 'sub/dir'));
+  });
+
+  it('treats an empty-string per-call cwd as unset', async () => {
+    expect(await runAgent({ runCwd: runDir, callCwd: '' })).toBe(runDir);
   });
 
   it('stays undefined when neither is set', async () => {
-    const specs: AgentSpec[] = [];
-    await runWorkflow(mod(async (wf) => wf.agent('work')), {
-      adapters: { claude: captureAdapter(specs) },
-    });
-    expect(specs[0]?.cwd).toBeUndefined();
+    expect(await runAgent({})).toBeUndefined();
   });
 
-  it('uses the per-call cwd when no run default is set', async () => {
-    const specs: AgentSpec[] = [];
-    await runWorkflow(mod(async (wf) => wf.agent('work', { cwd: '/other/repo' })), {
-      adapters: { claude: captureAdapter(specs) },
-    });
-    expect(specs[0]?.cwd).toBe('/other/repo');
+  it('pins a per-call-only cwd at call time, not spawn time', async () => {
+    expect(await runAgent({ callCwd: 'rel/path' })).toBe(resolve('rel/path'));
+  });
+});
+
+describe('run cwd validation', () => {
+  it('fails fast when the run cwd does not exist', async () => {
+    await expect(runAgent({ runCwd: join(runDir, 'no-such-dir') })).rejects.toThrow(
+      /run cwd is not a directory/,
+    );
   });
 });
 
@@ -81,10 +102,10 @@ describe('defer-rule cwd', () => {
     vi.mocked(loadSettingsDeferRules).mockClear();
     await runWorkflow(mod(async (wf) => wf.agent('work')), {
       adapters: { claude: captureAdapter([]) },
-      cwd: '/target/repo',
+      cwd: runDir,
       escalation: { channel: idleChannel, runId: 'r1' },
     });
-    expect(loadSettingsDeferRules).toHaveBeenCalledWith('/target/repo');
+    expect(loadSettingsDeferRules).toHaveBeenCalledWith(runDir);
   });
 
   // CRITICAL regression: the CLI passes no cwd and must keep resolving

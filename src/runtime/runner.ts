@@ -1,3 +1,4 @@
+import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { CliAdapter, WorkflowMeta, WorkflowModule } from '../types.js';
@@ -46,10 +47,21 @@ export interface RunOptions {
   };
 }
 
-export async function runWorkflow(mod: WorkflowModule, opts: RunOptions): Promise<unknown> {
-  // Pin once: a relative cwd must not re-anchor if the host calls
-  // process.chdir() between defer-rule loading and agent spawns.
-  if (opts.cwd !== undefined) opts = { ...opts, cwd: resolve(opts.cwd) };
+// Pin once: a relative cwd must not re-anchor if the host calls
+// process.chdir() between defer-rule loading and agent spawns. Fail fast on
+// a nonexistent directory — otherwise defer rules silently degrade to []
+// and the typo only surfaces as a per-agent spawn error mid-run.
+function pinRunCwd(opts: RunOptions): RunOptions {
+  if (opts.cwd === undefined) return opts;
+  const cwd = resolve(opts.cwd);
+  if (!statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
+    throw new Error(`run cwd is not a directory: ${cwd}`);
+  }
+  return { ...opts, cwd };
+}
+
+export async function runWorkflow(mod: WorkflowModule, rawOpts: RunOptions): Promise<unknown> {
+  const opts = pinRunCwd(rawOpts);
   const escalation = opts.escalation ? await startEscalation(opts) : undefined;
   try {
     const api = createWorkflowApi({
@@ -73,10 +85,14 @@ async function startEscalation(
   const cfg = opts.escalation;
   if (!cfg) throw new Error('unreachable');
   const defaultPolicy: EscalationPolicy = { ...DEFAULT_POLICY, ...cfg.defaultPolicy };
+  const rulesCwd = opts.cwd ?? process.cwd();
+  const settingsRules = loadSettingsDeferRules(rulesCwd);
+  // Visible trust extension: cwd's .claude settings become silent defer rules.
+  opts.onLog?.(`escalation: loaded ${settingsRules.length} defer rules from ${rulesCwd}`);
   const broker = new EscalationBroker({
     runId: cfg.runId,
     channel: cfg.channel,
-    settingsRules: loadSettingsDeferRules(opts.cwd ?? process.cwd()),
+    settingsRules,
     defaultPolicy,
     log: opts.onLog,
   });

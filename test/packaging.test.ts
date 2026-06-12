@@ -9,6 +9,7 @@ const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url),
   exports: Record<string, { types: string; default: string }>;
   files: string[];
   bin: Record<string, string>;
+  scripts: Record<string, string>;
 };
 
 it('exports map agrees with main/types and ships inside files[]', () => {
@@ -20,4 +21,10 @@ it('exports map agrees with main/types and ships inside files[]', () => {
   for (const bin of Object.values(pkg.bin)) {
     expect(bin.startsWith('dist/')).toBe(true);
   }
+});
+
+it('keeps the bin entry executable: shebang present, fresh dist at publish', () => {
+  const cli = readFileSync(new URL('../src/cli.ts', import.meta.url), 'utf8');
+  expect(cli.startsWith('#!/usr/bin/env node\n')).toBe(true);
+  expect(pkg.scripts.prepublishOnly).toContain('build');
 });
