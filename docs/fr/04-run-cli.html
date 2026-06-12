@@ -102,7 +102,7 @@ figcaption { font-size: 12.5px; color: var(--ink-faint); margin-top: 10px; }
 
 <h2 id="purpose">Purpose</h2>
 
-<p>The engine is externally triggerable: cron jobs, hooks, or other agents start a run with one command and consume its result from stdout. The CLI is the only entry point; there is no daemon.</p>
+<p>The engine is externally triggerable: cron jobs, hooks, or other agents start a run with one command and consume its result from stdout. The CLI is the primary entry point (hosts can also embed the engine by importing <code>runWorkflow</code> from the package root); there is no daemon.</p>
 
 <h2 id="user-visible-behavior">User-visible Behavior</h2>
 
