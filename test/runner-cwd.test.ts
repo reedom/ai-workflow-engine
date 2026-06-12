@@ -17,13 +17,17 @@ import { runWorkflow } from '../src/runtime/runner.js';
 import type { ApprovalChannel } from '../src/escalation/types.js';
 import type { AgentSpec, CliAdapter, WorkflowModule } from '../src/types.js';
 
-// Stubbed (not wrapped): the real implementation reads the host's
+// Stubbed (not wrapped): the real implementations read the host's
 // ~/.claude/settings.json, which would make these tests environment-dependent.
 vi.mock('../src/escalation/rules.js', async (importOriginal) => {
   const real = await importOriginal<typeof import('../src/escalation/rules.js')>();
-  return { ...real, loadSettingsDeferRules: vi.fn(() => []) };
+  return {
+    ...real,
+    loadHomeDeferRules: vi.fn(() => []),
+    loadProjectDeferRules: vi.fn(() => []),
+  };
 });
-import { loadSettingsDeferRules } from '../src/escalation/rules.js';
+import { loadProjectDeferRules } from '../src/escalation/rules.js';
 
 let runDir: string;
 beforeAll(() => {
@@ -98,24 +102,34 @@ describe('run cwd validation', () => {
 });
 
 describe('defer-rule cwd', () => {
-  it('resolves settings defer rules from the run-level cwd', async () => {
-    vi.mocked(loadSettingsDeferRules).mockClear();
+  it('resolves project defer rules from the run-level cwd', async () => {
+    vi.mocked(loadProjectDeferRules).mockClear();
     await runWorkflow(mod(async (wf) => wf.agent('work')), {
       adapters: { claude: captureAdapter([]) },
       cwd: runDir,
       escalation: { channel: idleChannel, runId: 'r1' },
     });
-    expect(loadSettingsDeferRules).toHaveBeenCalledWith(runDir);
+    expect(loadProjectDeferRules).toHaveBeenCalledWith(runDir);
   });
 
   // CRITICAL regression: the CLI passes no cwd and must keep resolving
   // defer rules from the engine process's working directory.
   it('falls back to process.cwd() when no cwd is given', async () => {
-    vi.mocked(loadSettingsDeferRules).mockClear();
+    vi.mocked(loadProjectDeferRules).mockClear();
     await runWorkflow(mod(async (wf) => wf.agent('work')), {
       adapters: { claude: captureAdapter([]) },
       escalation: { channel: idleChannel, runId: 'r1' },
     });
-    expect(loadSettingsDeferRules).toHaveBeenCalledWith(process.cwd());
+    expect(loadProjectDeferRules).toHaveBeenCalledWith(process.cwd());
+  });
+
+  it('skips project rules entirely when trustCwdSettings is false', async () => {
+    vi.mocked(loadProjectDeferRules).mockClear();
+    await runWorkflow(mod(async (wf) => wf.agent('work')), {
+      adapters: { claude: captureAdapter([]) },
+      cwd: runDir,
+      escalation: { channel: idleChannel, runId: 'r1', trustCwdSettings: false },
+    });
+    expect(loadProjectDeferRules).not.toHaveBeenCalled();
   });
 });

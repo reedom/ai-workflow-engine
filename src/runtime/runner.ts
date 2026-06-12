@@ -5,7 +5,7 @@ import type { CliAdapter, WorkflowMeta, WorkflowModule } from '../types.js';
 import type { ApprovalChannel, EscalationPolicy } from '../escalation/types.js';
 import { DEFAULT_POLICY } from '../escalation/types.js';
 import { EscalationBroker } from '../escalation/broker.js';
-import { loadSettingsDeferRules } from '../escalation/rules.js';
+import { loadHomeDeferRules, loadProjectDeferRules } from '../escalation/rules.js';
 import { createWorkflowApi } from './orchestration.js';
 import { makeBudget } from './budget.js';
 
@@ -44,6 +44,10 @@ export interface RunOptions {
     channel: ApprovalChannel;
     runId: string;
     defaultPolicy?: Partial<EscalationPolicy>;
+    // The run cwd's committed .claude settings become silent defer rules
+    // (scoped to agents running within that directory). Set false when the
+    // cwd points at a checkout the operator has not reviewed.
+    trustCwdSettings?: boolean;
   };
 }
 
@@ -86,13 +90,20 @@ async function startEscalation(
   if (!cfg) throw new Error('unreachable');
   const defaultPolicy: EscalationPolicy = { ...DEFAULT_POLICY, ...cfg.defaultPolicy };
   const rulesCwd = opts.cwd ?? process.cwd();
-  const settingsRules = loadSettingsDeferRules(rulesCwd);
+  const settingsRules = loadHomeDeferRules();
+  const projectRules =
+    (cfg.trustCwdSettings ?? true)
+      ? { cwd: rulesCwd, rules: loadProjectDeferRules(rulesCwd) }
+      : undefined;
   // Visible trust extension: cwd's .claude settings become silent defer rules.
-  opts.onLog?.(`escalation: loaded ${settingsRules.length} defer rules from ${rulesCwd}`);
+  opts.onLog?.(
+    `escalation: loaded ${settingsRules.length} home + ${projectRules?.rules.length ?? 0} project defer rules from ${rulesCwd}`,
+  );
   const broker = new EscalationBroker({
     runId: cfg.runId,
     channel: cfg.channel,
     settingsRules,
+    projectRules,
     defaultPolicy,
     log: opts.onLog,
   });

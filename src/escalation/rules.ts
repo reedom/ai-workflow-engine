@@ -32,18 +32,28 @@ export function matchesAnyRule(toolName: string, toolInput: unknown, rules: stri
 // Rules from the settings chain that should DEFER (allow: normal flow
 // allows; deny: normal flow denies). `ask` rules are intentionally not
 // loaded — they escalate.
-export function loadSettingsDeferRules(cwd: string, home: string = homedir()): string[] {
-  const files = [
-    join(home, '.claude', 'settings.json'),
-    join(cwd, '.claude', 'settings.json'),
-    join(cwd, '.claude', 'settings.local.json'),
+//
+// Home rules apply to every agent in a run; project rules carry the trust
+// of one directory and must only cover agents whose effective cwd is
+// within it (the broker enforces that scoping).
+export function loadHomeDeferRules(home: string = homedir()): string[] {
+  return readDeferRules(join(home, '.claude', 'settings.json'));
+}
+
+export function loadProjectDeferRules(cwd: string): string[] {
+  return [
+    ...readDeferRules(join(cwd, '.claude', 'settings.json')),
+    ...readDeferRules(join(cwd, '.claude', 'settings.local.json')),
   ];
-  const rules: string[] = [];
-  for (const file of files) {
-    const perms = readPermissions(file);
-    rules.push(...(perms.allow ?? []), ...(perms.deny ?? []));
-  }
-  return rules;
+}
+
+export function loadSettingsDeferRules(cwd: string, home: string = homedir()): string[] {
+  return [...loadHomeDeferRules(home), ...loadProjectDeferRules(cwd)];
+}
+
+function readDeferRules(file: string): string[] {
+  const perms = readPermissions(file);
+  return [...(perms.allow ?? []), ...(perms.deny ?? [])];
 }
 
 function readPermissions(file: string): { allow?: string[]; deny?: string[] } {

@@ -187,3 +187,36 @@ it('answers only the first line per connection', async () => {
     await broker.close();
   }
 });
+
+it('applies project rules only to requests within the rules cwd', async () => {
+  const request = vi.fn(async () => ({ behavior: 'deny' as const }));
+  const broker = new EscalationBroker({
+    runId: 'r1',
+    channel: fakeChannel(request),
+    projectRules: { cwd: '/trusted/repo', rules: ['Bash(rm -rf:*)'] },
+  });
+  // Inside the rules cwd (subdirectory): rule matches, call defers silently.
+  const inside = await broker.decide(req({ cwd: '/trusted/repo/sub' }));
+  expect(inside.behavior).toBe('defer');
+  expect(request).not.toHaveBeenCalled();
+  // Outside: the same call escalates instead of inheriting the wrong repo's rules.
+  const outside = await broker.decide(req({ cwd: '/other/repo' }));
+  expect(outside.behavior).toBe('deny');
+  expect(request).toHaveBeenCalledTimes(1);
+  // Prefix that is not a path boundary must not count as inside.
+  const lookalike = await broker.decide(req({ cwd: '/trusted/repo-evil' }));
+  expect(lookalike.behavior).toBe('deny');
+  expect(request).toHaveBeenCalledTimes(2);
+});
+
+it('assumes the rules cwd when a request carries no cwd', async () => {
+  const request = vi.fn(async () => ({ behavior: 'deny' as const }));
+  const broker = new EscalationBroker({
+    runId: 'r1',
+    channel: fakeChannel(request),
+    projectRules: { cwd: '/trusted/repo', rules: ['Bash(rm -rf:*)'] },
+  });
+  const d = await broker.decide(req());
+  expect(d.behavior).toBe('defer');
+  expect(request).not.toHaveBeenCalled();
+});
