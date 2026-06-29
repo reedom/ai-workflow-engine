@@ -89,7 +89,12 @@ export function buildEscalationSettings(esc: AgentEscalation, dir: string): stri
   const helper = esc.helperCommand ?? defaultHelperCommand();
   const settings = {
     hooks: {
-      PreToolUse: [
+      // PermissionRequest (not PreToolUse): PreToolUse fires for every tool call
+      // regardless of permission mode, gating unconditionally. PermissionRequest fires
+      // only when Claude's permission system would prompt a human, so the broker escalation
+      // is a conditional substitute for Claude's own prompt — silent under bypassPermissions
+      // and for tools Claude already auto-allows.
+      PermissionRequest: [
         {
           matcher: '*',
           hooks: [

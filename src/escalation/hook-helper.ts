@@ -23,9 +23,11 @@ function takeArg(argv: string[], name: string): string | undefined {
   return argv[i + 1];
 }
 
-// Returns the hook output JSON string for allow/deny, or null for defer
-// (the caller prints nothing so normal permission evaluation proceeds).
-export async function runHookHelper(argv: string[], stdinJson: string): Promise<string | null> {
+// Returns the PermissionRequest hook output JSON string. The hook fires only when
+// Claude's permission system would prompt a human, and a headless surface has no
+// interactive fallback, so every outcome resolves to an explicit allow/deny —
+// including a broker `defer` (tool matched an allow rule), which becomes an allow.
+export async function runHookHelper(argv: string[], stdinJson: string): Promise<string> {
   const socketPath = takeArg(argv, '--socket');
   const metaPath = takeArg(argv, '--meta');
   if (!socketPath || !metaPath) throw new Error('usage: hook-helper --socket <path> --meta <file>');
@@ -42,12 +44,13 @@ export async function runHookHelper(argv: string[], stdinJson: string): Promise<
     rules: meta.rules,
   };
   const decision = await requestDecision(socketPath, JSON.stringify(req));
-  if (decision.behavior === 'defer') return null;
+  // 'defer' means the tool matched an allow rule; under PermissionRequest there is
+  // no interactive fallback, so resolve it to an explicit allow.
+  const behavior = decision.behavior === 'deny' ? 'deny' : 'allow';
   return JSON.stringify({
     hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: decision.behavior,
-      permissionDecisionReason: decision.reason ?? `escalation: ${decision.behavior}`,
+      hookEventName: 'PermissionRequest',
+      decision: { behavior },
     },
   });
 }
@@ -79,13 +82,17 @@ if (entry !== undefined && import.meta.url === pathToFileURL(entry).href) {
   readAllStdin()
     .then((stdin) => runHookHelper(process.argv.slice(2), stdin))
     .then((out) => {
-      if (out !== null) process.stdout.write(`${out}\n`);
+      process.stdout.write(`${out}\n`);
       process.exit(0);
     })
     .catch((err) => {
-      // Print nothing on stdout: Claude Code falls back to its normal
-      // headless deny. Never more permissive than today.
+      // Emit an explicit deny: PermissionRequest has no interactive fallback on a
+      // headless surface, so on error we must deny rather than stay silent (which
+      // would fall through to a non-existent prompt). Never more permissive than today.
       process.stderr.write(`escalate-hook: ${err instanceof Error ? err.message : String(err)}\n`);
-      process.exit(1);
+      process.stdout.write(
+        `${JSON.stringify({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision: { behavior: 'deny' } } })}\n`,
+      );
+      process.exit(0);
     });
 }
