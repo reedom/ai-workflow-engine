@@ -9,6 +9,15 @@ export interface AgentEscalation {
   helperCommand?: string; // test override; default: node + dist hook-helper
 }
 
+/**
+ * Claude permission mode for a spawned agent, mapped to a CLI flag: `default` (none),
+ * `acceptEdits`/`auto` -> `--permission-mode <mode>`, `bypassPermissions` ->
+ * `--dangerously-skip-permissions`. This only tunes claude's BUILT-IN permission flow;
+ * a PreToolUse approval hook (if the host installs one, as nagi does) runs independently
+ * of the mode and can still gate tools.
+ */
+export type PermissionMode = 'default' | 'acceptEdits' | 'auto' | 'bypassPermissions';
+
 export interface AgentSpec {
   prompt: string;
   model?: string;
@@ -16,6 +25,7 @@ export interface AgentSpec {
   instructions?: string; // system prompt
   tools?: string[];
   cwd?: string;
+  permissionMode?: PermissionMode;
   escalation?: AgentEscalation;
 }
 
@@ -51,6 +61,8 @@ export interface AgentOptions {
   instructions?: string;
   tools?: string[];
   cwd?: string;
+  /** Per-call permission mode; overrides the run-level default. */
+  permissionMode?: PermissionMode;
   label?: string;
   phase?: string;
   escalation?: AgentEscalationOptions;

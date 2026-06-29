@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import type { AgentEscalation, AgentOptions, AgentResult, CliAdapter, Stage, WorkflowApi } from '../types.js';
+import type { AgentEscalation, AgentOptions, AgentResult, CliAdapter, PermissionMode, Stage, WorkflowApi } from '../types.js';
 import type { EscalationPolicy } from '../escalation/types.js';
 import type { EscalationBroker } from '../escalation/broker.js';
 import type { MutableBudget } from './budget.js';
@@ -11,6 +11,7 @@ export interface OrchestrationDeps {
   budget: MutableBudget;
   concurrency: number;
   cwd?: string; // run-level default agent cwd; per-call opts.cwd wins
+  permissionMode?: PermissionMode; // run-level default; per-call opts.permissionMode wins
   onLog?: (msg: string) => void;
   escalation?: { broker: EscalationBroker; defaultPolicy: EscalationPolicy };
 }
@@ -58,6 +59,7 @@ export function createWorkflowApi(deps: OrchestrationDeps): WorkflowApi {
         instructions: opts.instructions,
         tools: opts.tools,
         cwd: resolveAgentCwd(opts),
+        permissionMode: opts.permissionMode ?? deps.permissionMode,
         escalation: buildEscalation(prompt, opts),
       });
       deps.budget.add(result.usage.inputTokens + result.usage.outputTokens);
