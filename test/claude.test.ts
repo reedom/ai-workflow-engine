@@ -41,6 +41,10 @@ describe('buildClaudeArgs', () => {
     expect(buildClaudeArgs({ prompt: 'hi', permissionMode: 'bypassPermissions' })).toContain('--dangerously-skip-permissions');
     expect(buildClaudeArgs({ prompt: 'hi' })).not.toContain('--permission-mode');
   });
+
+  it('throws on an unknown permission mode from an untyped caller', () => {
+    expect(() => permissionModeArgs('bogus' as never)).toThrow(/unknown permission mode: bogus/);
+  });
 });
 
 describe('parseClaudeResult', () => {

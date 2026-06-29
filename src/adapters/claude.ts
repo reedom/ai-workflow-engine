@@ -7,9 +7,20 @@ import type { AgentEscalation, AgentResult, AgentSpec, CliAdapter, PermissionMod
 
 /** Map a permission mode to claude CLI flags (`bypassPermissions` => --dangerously-skip-permissions). */
 export function permissionModeArgs(mode: PermissionMode | undefined): string[] {
-  if (mode === undefined || mode === 'default') return [];
-  if (mode === 'bypassPermissions') return ['--dangerously-skip-permissions'];
-  return ['--permission-mode', mode]; // 'acceptEdits' | 'auto'
+  // Validate at this boundary: the helper is part of the public JS surface, so an
+  // untyped caller's typo must fail fast locally instead of as an opaque subprocess error.
+  switch (mode) {
+    case undefined:
+    case 'default':
+      return [];
+    case 'bypassPermissions':
+      return ['--dangerously-skip-permissions'];
+    case 'acceptEdits':
+    case 'auto':
+      return ['--permission-mode', mode];
+    default:
+      throw new Error(`unknown permission mode: ${String(mode)}`);
+  }
 }
 
 export function buildClaudeArgs(spec: AgentSpec): string[] {
