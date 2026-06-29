@@ -103,7 +103,7 @@ describe('makeClaudeAdapter', () => {
 });
 
 describe('buildEscalationSettings', () => {
-  it('writes meta + settings files with a PreToolUse hook', () => {
+  it('writes meta + settings files with a PermissionRequest hook', () => {
     const dir = mkdtempSync(join(tmpdir(), 'awe-claude-test-'));
     const settingsPath = buildEscalationSettings(
       {
@@ -117,9 +117,9 @@ describe('buildEscalationSettings', () => {
       dir,
     );
     const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
-      hooks: { PreToolUse: Array<{ matcher: string; hooks: Array<{ type: string; command: string; timeout: number }> }> };
+      hooks: { PermissionRequest: Array<{ matcher: string; hooks: Array<{ type: string; command: string; timeout: number }> }> };
     };
-    const hook = settings.hooks.PreToolUse[0];
+    const hook = settings.hooks.PermissionRequest[0];
     expect(hook.matcher).toBe('*');
     expect(hook.hooks[0].type).toBe('command');
     expect(hook.hooks[0].command).toContain('node /opt/helper.js');
@@ -151,9 +151,9 @@ describe('buildEscalationSettings', () => {
       dir,
     );
     const settings = JSON.parse(readFileSync(settingsPath, 'utf8')) as {
-      hooks: { PreToolUse: Array<{ hooks: Array<{ timeout: number }> }> };
+      hooks: { PermissionRequest: Array<{ hooks: Array<{ timeout: number }> }> };
     };
-    expect(86_400 <= settings.hooks.PreToolUse[0].hooks[0].timeout).toBe(true);
+    expect(86_400 <= settings.hooks.PermissionRequest[0].hooks[0].timeout).toBe(true);
   });
 
   it('passes --settings when spec.escalation is set and cleans up the temp dir', async () => {

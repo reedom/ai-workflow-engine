@@ -6,10 +6,13 @@ import { join } from 'node:path';
 import { EscalationBroker } from '../src/escalation/broker.js';
 import { runHookHelper } from '../src/escalation/hook-helper.js';
 
-function setup(decision: 'allow' | 'deny') {
+function setup(decision: 'allow' | 'deny' | 'defer' | 'unknown') {
   const broker = new EscalationBroker({
     runId: 'r1',
-    channel: { id: 'fake', request: async () => ({ behavior: decision, reason: 'human said so' }) },
+    channel: {
+      id: 'fake',
+      request: async () => ({ behavior: decision as 'allow' | 'deny' | 'defer', reason: 'human said so' }),
+    },
   });
   const metaPath = join(mkdtempSync(join(tmpdir(), 'awe-meta-')), 'meta.json');
   writeFileSync(
@@ -25,13 +28,13 @@ function setup(decision: 'allow' | 'deny') {
 }
 
 const hookStdin = JSON.stringify({
-  hook_event_name: 'PreToolUse',
+  hook_event_name: 'PermissionRequest',
   tool_name: 'Bash',
   tool_input: { command: 'rm -rf build' },
   cwd: '/work',
 });
 
-it('prints a PreToolUse allow decision', async () => {
+it('prints a PermissionRequest allow decision', async () => {
   const { broker, metaPath } = setup('allow');
   await broker.start();
   try {
@@ -39,9 +42,8 @@ it('prints a PreToolUse allow decision', async () => {
     expect(out).not.toBeNull();
     expect(JSON.parse(out as string)).toEqual({
       hookSpecificOutput: {
-        hookEventName: 'PreToolUse',
-        permissionDecision: 'allow',
-        permissionDecisionReason: 'human said so',
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'allow' },
       },
     });
   } finally {
@@ -55,21 +57,48 @@ it('prints a deny decision', async () => {
   try {
     const out = await runHookHelper(['--socket', broker.socketPath, '--meta', metaPath], hookStdin);
     const parsed = JSON.parse(out as string) as {
-      hookSpecificOutput: { permissionDecision: string };
+      hookSpecificOutput: { decision: { behavior: string } };
     };
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(parsed.hookSpecificOutput.decision.behavior).toBe('deny');
   } finally {
     await broker.close();
   }
 });
 
-it('returns null (prints nothing) for deferred calls', async () => {
-  const { broker, metaPath } = setup('allow');
+// PermissionRequest only fires when Claude would prompt; there is no interactive
+// fallback on a headless surface, so a broker `defer` (tool matches an allow rule)
+// must resolve to an explicit allow — NOT silence, which would fall through to a
+// non-existent prompt and effectively deny a rule-allowlisted tool.
+it('emits an explicit allow for deferred (rule-matched) calls', async () => {
+  const { broker, metaPath } = setup('deny');
   await broker.start();
   try {
     const readStdin = JSON.stringify({ tool_name: 'Read', tool_input: { file_path: '/x' } });
     const out = await runHookHelper(['--socket', broker.socketPath, '--meta', metaPath], readStdin);
-    expect(out).toBeNull();
+    expect(JSON.parse(out as string)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'allow' },
+      },
+    });
+  } finally {
+    await broker.close();
+  }
+});
+
+// A malformed or version-skewed broker reply must fail closed: an authorization
+// decision must never default to allow on a value the helper does not recognize.
+it('denies an unrecognized broker behavior', async () => {
+  const { broker, metaPath } = setup('unknown');
+  await broker.start();
+  try {
+    const out = await runHookHelper(['--socket', broker.socketPath, '--meta', metaPath], hookStdin);
+    expect(JSON.parse(out as string)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'deny' },
+      },
+    });
   } finally {
     await broker.close();
   }
