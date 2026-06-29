@@ -7,6 +7,7 @@ import {
   parseClaudeResult,
   makeClaudeAdapter,
   buildEscalationSettings,
+  permissionModeArgs,
 } from '../src/adapters/claude.js';
 
 describe('buildClaudeArgs', () => {
@@ -28,6 +29,21 @@ describe('buildClaudeArgs', () => {
     expect(args[modelIdx + 1]).toBe('haiku');
     const toolsIdx = args.indexOf('--allowedTools');
     expect(args.slice(toolsIdx + 1)).toEqual(['Read', 'Bash']);
+  });
+
+  it('maps permissionMode to the right flags', () => {
+    expect(permissionModeArgs(undefined)).toEqual([]);
+    expect(permissionModeArgs('default')).toEqual([]);
+    expect(permissionModeArgs('auto')).toEqual(['--permission-mode', 'auto']);
+    expect(permissionModeArgs('acceptEdits')).toEqual(['--permission-mode', 'acceptEdits']);
+    expect(permissionModeArgs('bypassPermissions')).toEqual(['--dangerously-skip-permissions']);
+    expect(buildClaudeArgs({ prompt: 'hi', permissionMode: 'auto' })).toContain('--permission-mode');
+    expect(buildClaudeArgs({ prompt: 'hi', permissionMode: 'bypassPermissions' })).toContain('--dangerously-skip-permissions');
+    expect(buildClaudeArgs({ prompt: 'hi' })).not.toContain('--permission-mode');
+  });
+
+  it('throws on an unknown permission mode from an untyped caller', () => {
+    expect(() => permissionModeArgs('bogus' as never)).toThrow(/unknown permission mode: bogus/);
   });
 });
 

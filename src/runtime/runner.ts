@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import type { CliAdapter, WorkflowMeta, WorkflowModule } from '../types.js';
+import type { CliAdapter, PermissionMode, WorkflowMeta, WorkflowModule } from '../types.js';
 import type { ApprovalChannel, EscalationPolicy } from '../escalation/types.js';
 import { DEFAULT_POLICY } from '../escalation/types.js';
 import { EscalationBroker } from '../escalation/broker.js';
@@ -39,6 +39,8 @@ export interface RunOptions {
   // (per-call AgentOptions.cwd wins) AND the directory whose .claude
   // settings provide permission defer rules. Defaults to process.cwd().
   cwd?: string;
+  /** Run-level default permission mode for every agent spawn; per-call AgentOptions.permissionMode wins. */
+  permissionMode?: PermissionMode;
   onLog?: (msg: string) => void;
   escalation?: {
     channel: ApprovalChannel;
@@ -74,6 +76,7 @@ export async function runWorkflow(mod: WorkflowModule, rawOpts: RunOptions): Pro
       budget: makeBudget(opts.budget ?? null),
       concurrency: opts.concurrency ?? 8,
       cwd: opts.cwd,
+      permissionMode: opts.permissionMode,
       onLog: opts.onLog,
       escalation,
     });

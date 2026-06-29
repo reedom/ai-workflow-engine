@@ -3,7 +3,25 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AgentEscalation, AgentResult, AgentSpec, CliAdapter } from '../types.js';
+import type { AgentEscalation, AgentResult, AgentSpec, CliAdapter, PermissionMode } from '../types.js';
+
+/** Map a permission mode to claude CLI flags (`bypassPermissions` => --dangerously-skip-permissions). */
+export function permissionModeArgs(mode: PermissionMode | undefined): string[] {
+  // Validate at this boundary: the helper is part of the public JS surface, so an
+  // untyped caller's typo must fail fast locally instead of as an opaque subprocess error.
+  switch (mode) {
+    case undefined:
+    case 'default':
+      return [];
+    case 'bypassPermissions':
+      return ['--dangerously-skip-permissions'];
+    case 'acceptEdits':
+    case 'auto':
+      return ['--permission-mode', mode];
+    default:
+      throw new Error(`unknown permission mode: ${String(mode)}`);
+  }
+}
 
 export function buildClaudeArgs(spec: AgentSpec): string[] {
   const args = ['-p', spec.prompt, '--output-format', 'json'];
@@ -12,6 +30,7 @@ export function buildClaudeArgs(spec: AgentSpec): string[] {
   if (spec.instructions) args.push('--append-system-prompt', spec.instructions);
   const tools = spec.tools ?? [];
   if (0 < tools.length) args.push('--allowedTools', ...tools);
+  args.push(...permissionModeArgs(spec.permissionMode));
   return args;
 }
 

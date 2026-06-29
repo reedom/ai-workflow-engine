@@ -5,7 +5,7 @@ export { loadWorkflow, runWorkflow, validateMeta } from './runtime/runner.js';
 export type { RunOptions } from './runtime/runner.js';
 export { makeBudget } from './runtime/budget.js';
 
-export { makeClaudeAdapter } from './adapters/claude.js';
+export { makeClaudeAdapter, permissionModeArgs } from './adapters/claude.js';
 export { makeCodexAdapter } from './adapters/codex.js';
 
 export { EscalationBroker } from './escalation/broker.js';
@@ -28,6 +28,7 @@ export type {
   AgentUsage,
   Budget,
   CliAdapter,
+  PermissionMode,
   Stage,
   WorkflowApi,
   WorkflowMeta,
