@@ -44,9 +44,13 @@ export async function runHookHelper(argv: string[], stdinJson: string): Promise<
     rules: meta.rules,
   };
   const decision = await requestDecision(socketPath, JSON.stringify(req));
-  // 'defer' means the tool matched an allow rule; under PermissionRequest there is
-  // no interactive fallback, so resolve it to an explicit allow.
-  const behavior = decision.behavior === 'deny' ? 'deny' : 'allow';
+  // Allowlist the two known-allow outcomes; deny everything else. 'allow' is an
+  // explicit grant, and 'defer' means the tool matched an allow rule (under
+  // PermissionRequest there is no interactive fallback, so it resolves to allow).
+  // Any other value — a malformed or version-skewed broker reply — must fail
+  // closed rather than silently approve the tool call.
+  const behavior =
+    decision.behavior === 'allow' || decision.behavior === 'defer' ? 'allow' : 'deny';
   return JSON.stringify({
     hookSpecificOutput: {
       hookEventName: 'PermissionRequest',

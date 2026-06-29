@@ -6,10 +6,13 @@ import { join } from 'node:path';
 import { EscalationBroker } from '../src/escalation/broker.js';
 import { runHookHelper } from '../src/escalation/hook-helper.js';
 
-function setup(decision: 'allow' | 'deny') {
+function setup(decision: 'allow' | 'deny' | 'defer' | 'unknown') {
   const broker = new EscalationBroker({
     runId: 'r1',
-    channel: { id: 'fake', request: async () => ({ behavior: decision, reason: 'human said so' }) },
+    channel: {
+      id: 'fake',
+      request: async () => ({ behavior: decision as 'allow' | 'deny' | 'defer', reason: 'human said so' }),
+    },
   });
   const metaPath = join(mkdtempSync(join(tmpdir(), 'awe-meta-')), 'meta.json');
   writeFileSync(
@@ -76,6 +79,24 @@ it('emits an explicit allow for deferred (rule-matched) calls', async () => {
       hookSpecificOutput: {
         hookEventName: 'PermissionRequest',
         decision: { behavior: 'allow' },
+      },
+    });
+  } finally {
+    await broker.close();
+  }
+});
+
+// A malformed or version-skewed broker reply must fail closed: an authorization
+// decision must never default to allow on a value the helper does not recognize.
+it('denies an unrecognized broker behavior', async () => {
+  const { broker, metaPath } = setup('unknown');
+  await broker.start();
+  try {
+    const out = await runHookHelper(['--socket', broker.socketPath, '--meta', metaPath], hookStdin);
+    expect(JSON.parse(out as string)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: 'PermissionRequest',
+        decision: { behavior: 'deny' },
       },
     });
   } finally {
