@@ -111,7 +111,7 @@ export function createWorkflowApi(deps: OrchestrationDeps): WorkflowApi {
     await Promise.all(
       Object.values(deps.adapters)
         .filter((a) => typeof a.setMeta === 'function')
-        .map((a) => a.setMeta!(meta)),
+        .map((a) => Promise.resolve().then(() => a.setMeta!(meta))),
     );
   }
 
