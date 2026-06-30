@@ -30,6 +30,7 @@ export type {
   CliAdapter,
   PermissionMode,
   Stage,
+  SurfaceMeta,
   WorkflowApi,
   WorkflowMeta,
   WorkflowModule,
