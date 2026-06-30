@@ -43,10 +43,17 @@ export interface AgentResult<T = unknown> {
   sessionId?: string;
 }
 
+export interface SurfaceMeta {
+  name?: string;
+  description?: string;
+}
+
 export interface CliAdapter {
   readonly id: string;
   readonly caps: { schema: boolean; resume: boolean; tools: boolean };
   run(spec: AgentSpec): Promise<AgentResult>;
+  /** Optional: surfaced adapters that own a workspace can rename/describe it. */
+  setMeta?(meta: SurfaceMeta): Promise<void>;
 }
 
 export interface AgentEscalationOptions {
@@ -85,6 +92,8 @@ export interface WorkflowApi {
   log(message: string): void;
   budget: Budget;
   args: unknown;
+  /** Set the run's surface (cmux workspace) name/description; no-op on lanes without a surface. */
+  setSurfaceMeta(meta: SurfaceMeta): Promise<void>;
 }
 
 export interface WorkflowMeta {

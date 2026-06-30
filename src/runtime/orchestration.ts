@@ -1,5 +1,5 @@
 import { resolve } from 'node:path';
-import type { AgentEscalation, AgentOptions, AgentResult, CliAdapter, PermissionMode, Stage, WorkflowApi } from '../types.js';
+import type { AgentEscalation, AgentOptions, AgentResult, CliAdapter, PermissionMode, Stage, SurfaceMeta, WorkflowApi } from '../types.js';
 import type { EscalationPolicy } from '../escalation/types.js';
 import type { EscalationBroker } from '../escalation/broker.js';
 import type { MutableBudget } from './budget.js';
@@ -107,5 +107,13 @@ export function createWorkflowApi(deps: OrchestrationDeps): WorkflowApi {
     if (deps.onLog) deps.onLog(currentPhase ? `[${currentPhase}] ${message}` : message);
   }
 
-  return { agent, parallel, pipeline, phase, log, budget: deps.budget, args: deps.args };
+  async function setSurfaceMeta(meta: SurfaceMeta): Promise<void> {
+    await Promise.all(
+      Object.values(deps.adapters)
+        .filter((a) => typeof a.setMeta === 'function')
+        .map((a) => Promise.resolve().then(() => a.setMeta!(meta))),
+    );
+  }
+
+  return { agent, parallel, pipeline, phase, log, budget: deps.budget, args: deps.args, setSurfaceMeta };
 }
